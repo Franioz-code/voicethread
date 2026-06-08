@@ -261,10 +261,14 @@ app.get('/api/voices', async (req, res) => {
     const r = await fetch(`${ELEVEN_API}/voices`, { headers: { 'xi-api-key': API_KEY } });
     if (!r.ok) return res.status(502).json({ error: await elevenErrorMessage(r) });
     const data = await r.json();
-    const premade = (data.voices || [])
-      .filter((v) => v.category === 'premade')
-      .map((v) => ({ voice_id: v.voice_id, name: v.name, gender: (v.labels && v.labels.gender) || '' }));
-    res.json({ premade });
+    const all = data.voices || [];
+    const toEntry = (v) => ({ voice_id: v.voice_id, name: v.name, gender: (v.labels && v.labels.gender) || '', category: v.category });
+    const premade = all.filter((v) => v.category === 'premade').map(toEntry);
+    // The account's OWN voices (cloned via IVC, generated, or added from the
+    // library) — always usable by the owner. Returned separately so the app can
+    // surface "your voice" first (e.g. to hear your cloned voice in "Mów").
+    const custom = all.filter((v) => v.category && v.category !== 'premade').map(toEntry);
+    res.json({ premade, custom });
   } catch (err) {
     res.status(500).json({ error: 'Błąd serwera (voices): ' + (err?.message || err) });
   }
