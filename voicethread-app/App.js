@@ -120,14 +120,17 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
-  // ONE voices fetch shared by every mode (Speak preselects the first voice;
-  // the setup form lets you pick MY + CONTACT voice from the same list).
-  useEffect(() => {
-    setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
+  // ONE voices loader shared by every mode. Your OWN cloned/custom voices come
+  // FIRST (tagged 🎙) so "Mów" preselects YOUR voice; then the premade list.
+  const refreshVoices = useCallback(() => {
+    const mineId = profile?.defaultVoiceId;
     fetch(`${BACKEND}/api/voices`)
       .then((r) => r.json())
       .then((d) => {
-        const list = d.premade || [];
+        const mine = (d.custom || []).map((v) => ({ ...v, name: `🎙 ${v.name}`, cloned: true }));
+        // Your ACTIVE cloned voice first → "Mów" auto-selects YOU (not a test clone).
+        mine.sort((a, b) => (b.voice_id === mineId ? 1 : 0) - (a.voice_id === mineId ? 1 : 0));
+        const list = [...mine, ...(d.premade || [])];
         setVoices(list);
         setStatus(`Połączono • ${list.length} ${plural(list.length, 'głos', 'głosy', 'głosów')}`);
       })
@@ -135,7 +138,12 @@ export default function App() {
         setStatus('Brak połączenia');
         setError(`Nie mogę połączyć się z ${BACKEND}.\nSprawdź, czy serwer działa (npm start) i czy telefon jest w tej samej sieci Wi‑Fi.`);
       });
-  }, []);
+  }, [profile?.defaultVoiceId]);
+
+  useEffect(() => {
+    setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
+    refreshVoices();
+  }, [refreshVoices]);
 
   const connected = voices.length > 0;
 
@@ -245,7 +253,8 @@ export default function App() {
   // chats immediately use it for our outgoing messages (repo already persisted).
   const handleVoiceSaved = useCallback((voiceId) => {
     setProfile((p) => (p ? { ...p, defaultVoiceId: voiceId } : p));
-  }, []);
+    refreshVoices(); // bring the freshly-cloned voice into the pickers ("Mów" etc.)
+  }, [refreshVoices]);
 
   // --- gated splash: don't render screens until the DB is open + migrated ---
   if (!dbReady || !fontsReady) {
