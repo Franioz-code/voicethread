@@ -1,0 +1,25 @@
+{
+  "name": "voicethread",
+  "version": "1.0.0",
+  "description": "Turn an SMS-style message thread into a natural spoken conversation using ElevenLabs, with a distinct voice per participant.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test:backend": "node --test tests/http-validation.test.js tests/relay.test.js",
+    "test:theme": "node --test tests/theme.test.js",
+    "test:emotion": "node voicethread-app/src/features/emotion/emotion.test.mjs",
+    "test": "npm run test:backend && npm run test:theme && npm run test:emotion"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.7.5"
+  }
+}

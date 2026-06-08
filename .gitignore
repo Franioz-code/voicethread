@@ -1,0 +1,18 @@
+# dependencies
+node_modules/
+**/node_modules/
+# expo / RN build output
+**/dist/
+**/.expo/
+.expo/
+# secrets / env
+.env
+*.env.local
+# caches & generated audio
+.cache/
+# transient per-run backups
+_*_backup/
+# installed external skills
+.agents/
+# local Claude Code config (keep workflows; drop personal settings)
+.claude/settings.local.json
