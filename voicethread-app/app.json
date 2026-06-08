@@ -21,7 +21,12 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-audio",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "VoiceThread potrzebuje mikrofonu, aby nagrać i przepisać Twoją wiadomość głosową (mowa → tekst)."
+        }
+      ],
       "expo-font",
       "expo-sqlite"
     ]
