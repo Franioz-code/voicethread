@@ -210,6 +210,7 @@ export default function ConversationsScreen({
   onOpenConversation,
   onNewChat,
   onSpeak,
+  onVoiceStudio,
   title = 'Rozmowy',
 }) {
   // Snapshot "now" once per render so every row's relative time is consistent.
@@ -253,6 +254,19 @@ export default function ConversationsScreen({
               <Text style={styles.speakBtnText} numberOfLines={1}>Mów</Text>
             </TouchableOpacity>
           )}
+          {onVoiceStudio && (
+            <TouchableOpacity
+              style={styles.speakBtn}
+              onPress={onVoiceStudio}
+              activeOpacity={0.7}
+              hitSlop={sizes.hitSlop}
+              accessibilityRole="button"
+              accessibilityLabel="Mój głos"
+              accessibilityHint="Sklonuj lub ustaw swój głos"
+            >
+              <Text style={styles.speakBtnText} numberOfLines={1}>🎙</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={styles.newBtn}
             onPress={onNewChat}
@@ -263,7 +277,7 @@ export default function ConversationsScreen({
             accessibilityHint="Otwiera tworzenie nowej rozmowy"
           >
             <Text style={styles.newBtnIcon}>＋</Text>
-            <Text style={styles.newBtnText} numberOfLines={1}>Nowa rozmowa</Text>
+            <Text style={styles.newBtnText} numberOfLines={1}>Nowa</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -311,7 +325,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     borderWidth: sizes.hairlineWidth,
     borderColor: colors.hairlineStrong,
-    paddingHorizontal: spacing.base,
+    paddingHorizontal: spacing.sm,
+    minWidth: sizes.tapMin,
     minHeight: sizes.tapMin,
     alignItems: 'center',
     justifyContent: 'center',
