@@ -42,6 +42,7 @@ import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import { analyzeForSpeech } from './src/features/emotion';
 import ChatScreen from './src/features/chat/ChatScreen';
 import ConversationsScreen from './src/features/chat/ConversationsScreen';
+import VoiceStudioScreen from './src/features/voice/VoiceStudioScreen';
 import * as repo from './src/db/repo';
 import {
   colors,
@@ -77,7 +78,7 @@ const PLAY = { idle: 'idle', loading: 'loading', playing: 'playing' };
 
 // Top-level views. The conversation list is the landing surface; the others are
 // full-screen and bring (or get) their own header.
-const VIEW = { list: 'list', newChat: 'newChat', chat: 'chat', speak: 'speak' };
+const VIEW = { list: 'list', newChat: 'newChat', chat: 'chat', speak: 'speak', voice: 'voice' };
 
 // ===========================================================================
 // App — shell: opens the DB, loads the device profile + voices, and routes
@@ -167,12 +168,15 @@ export default function App() {
       if (form.displayName && form.displayName !== profile?.displayName) {
         repo.updateProfile({ displayName: form.displayName }).catch(() => {});
       }
+      // Prefer the user's CLONED voice (profile.defaultVoiceId, set in "Mój głos")
+      // for OUR outgoing messages; fall back to the voice picked in setup.
+      const myVoiceId = profile?.defaultVoiceId || form.myVoiceId;
       try {
         const convo = await repo.findOrCreateConversation(
           userId,
           form.contactName,
           form.contactVoiceId,
-          { roomCode: form.roomId, myVoiceId: form.myVoiceId }
+          { roomCode: form.roomId, myVoiceId }
         );
         openConversation({
           roomId: convo.roomCode,
@@ -188,7 +192,7 @@ export default function App() {
             roomId: form.roomId,
             contactName: form.contactName,
             contactVoiceId: form.contactVoiceId,
-            myVoiceId: form.myVoiceId,
+            myVoiceId,
           },
           { userId, displayName }
         );
@@ -236,6 +240,12 @@ export default function App() {
     setChatSession(null);
     setView(VIEW.list);
   }
+
+  // After cloning in "Mój głos", reflect the new default voice in state so new
+  // chats immediately use it for our outgoing messages (repo already persisted).
+  const handleVoiceSaved = useCallback((voiceId) => {
+    setProfile((p) => (p ? { ...p, defaultVoiceId: voiceId } : p));
+  }, []);
 
   // --- gated splash: don't render screens until the DB is open + migrated ---
   if (!dbReady || !fontsReady) {
@@ -297,6 +307,17 @@ export default function App() {
     );
   }
 
+  // --- "Mój głos" — voice-cloning studio (reachable from the list header) ----
+  if (view === VIEW.voice) {
+    return (
+      <View style={styles.screen}>
+        <StatusBar style="dark" />
+        <SubHeader title="Mój głos" status={status} connected={connected} onBack={() => setView(VIEW.list)} />
+        <VoiceStudioScreen profile={profile} onSaved={handleVoiceSaved} />
+      </View>
+    );
+  }
+
   // --- default: the conversation list (the home) ----------------------------
   return (
     <View style={styles.screen}>
@@ -306,6 +327,7 @@ export default function App() {
         onOpenConversation={handleOpenConversation}
         onNewChat={() => setView(VIEW.newChat)}
         onSpeak={() => setView(VIEW.speak)}
+        onVoiceStudio={() => setView(VIEW.voice)}
       />
     </View>
   );
