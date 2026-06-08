@@ -31,6 +31,14 @@ const SCRIPT =
   'Czasem mówię szybko, gdy jestem podekscytowany, a czasem wolno i ciepło. ' +
   'Dziękuję, że słuchasz — do usłyszenia w rozmowie!';
 
+// Tips shown in the studio so the user records a clean, clone-worthy sample.
+const TIPS = [
+  'Nagrywaj w cichym miejscu — bez muzyki, TV ani innych głosów w tle.',
+  'Trzymaj telefon ~20 cm od ust; mów wyraźnie i naturalnie.',
+  '40–60 sekund ciągłej mowy — im więcej czystego audio, tym wierniejszy klon.',
+  'Tylko Twój głos — klonujemy jednego mówcę.',
+];
+
 function fmtDur(ms) {
   const s = Math.floor((ms || 0) / 1000);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -80,6 +88,12 @@ export default function VoiceStudioScreen({ profile, onSaved }) {
         To wyróżnik VoiceThread — rozmowa, która naprawdę brzmi jak Ty.
       </Text>
 
+      <View style={styles.planBadge}>
+        <Text style={styles.planBadgeText}>
+          ℹ️ Klonowanie używa ElevenLabs IVC i wymaga płatnego planu. Na darmowym koncie zobaczysz komunikat — wtedy wybierz gotowy głos.
+        </Text>
+      </View>
+
       <View style={styles.statusCard}>
         <Text style={styles.statusLabel}>Twój głos teraz</Text>
         <Text style={styles.statusValue}>
@@ -104,6 +118,16 @@ export default function VoiceStudioScreen({ profile, onSaved }) {
           <View style={styles.scriptCard}>
             <Text style={styles.scriptLabel}>Przeczytaj na głos (~40 s)</Text>
             <Text style={styles.scriptText}>{SCRIPT}</Text>
+          </View>
+
+          <View style={styles.tipsCard}>
+            <Text style={styles.tipsTitle}>Wskazówki — dla wiernego klonu</Text>
+            {TIPS.map((t) => (
+              <View key={t} style={styles.tipRow}>
+                <Text style={styles.tipDot}>•</Text>
+                <Text style={styles.tipText}>{t}</Text>
+              </View>
+            ))}
           </View>
 
           {/* Record / stop / re-record controls */}
@@ -185,6 +209,15 @@ const styles = StyleSheet.create({
   },
   scriptLabel: { ...type.overline, fontSize: 10, color: colors.muted, marginBottom: spacing.xs },
   scriptText: { ...type.body, color: colors.ink, fontStyle: 'italic', lineHeight: 26 },
+
+  planBadge: { backgroundColor: colors.surfaceStrong, borderRadius: radius.lg, paddingHorizontal: spacing.base, paddingVertical: spacing.sm, marginBottom: spacing.base },
+  planBadgeText: { ...type.caption, color: colors.muted, lineHeight: 19 },
+
+  tipsCard: { backgroundColor: colors.surface, borderRadius: radius.xl, borderWidth: sizes.hairlineWidth, borderColor: colors.hairline, padding: spacing.base, marginBottom: spacing.base },
+  tipsTitle: { ...type.overline, fontSize: 10, color: colors.muted, marginBottom: spacing.sm },
+  tipRow: { flexDirection: 'row', marginBottom: spacing.xs },
+  tipDot: { ...type.body, color: colors.mutedSoft, marginRight: spacing.xs },
+  tipText: { ...type.bodySm, color: colors.body, flex: 1, lineHeight: 20 },
 
   cta: {
     height: sizes.ctaHeight, borderRadius: radius.pill, backgroundColor: colors.ink,
