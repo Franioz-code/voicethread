@@ -5,13 +5,12 @@
 // bubble visibly shows its detected feeling + intensity + the eleven_v3 audio
 // tag that drives an accurate spoken replay in the contact's own voice.
 //
-// ElevenLabs visual language (docs/ELEVENLABS-BRAND.md): warm-stone canvas,
-// monochrome bubbles, Inter type, hairlines — with the pastel "gradient-orb"
-// hues used ONLY as the per-emotion accent (theme.emotionColors). Avatars +
-// message grouping give it a familiar messenger feel.
+// VOICE-FIRST input: a 🎙 mic in the composer dictates a message (record →
+// /api/stt Scribe → text). A hands-free toggle auto-reads incoming messages
+// aloud and lets you reply by voice with one tap (auto-send).
 //
-// Behavior/contracts preserved: useChat relay, FlatList auto-scroll, typing
-// indicator, playingId state, GET /api/tts playback.
+// ElevenLabs visual language: warm-stone canvas, monochrome bubbles, Inter type,
+// hairlines, with pastel "gradient-orb" hues as the per-emotion accent.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -25,12 +24,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { colors, emotionColors, radius, sizes, spacing, type } from '../../theme';
+import { colors, emotionColors, gradientOrbs, radius, sizes, spacing, type } from '../../theme';
 import { useChat } from './useChat';
+import { useVoiceInput } from './useVoiceInput';
 
-// Detected-emotion → emoji + Polish label + the eleven_v3 audio tag it maps to.
-// Keys match the classifier set (src/features/emotion). The tag is what makes
-// the spoken replay "accurate" — we surface it so the metadata is visible.
 const EMOTION = {
   joy: { emoji: '😊', label: 'radość', tag: '[happy]' },
   sadness: { emoji: '😔', label: 'smutek', tag: '[sad]' },
@@ -52,6 +49,10 @@ function formatTime(ts) {
   const d = new Date(ts);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
+function fmtDur(ms) {
+  const s = Math.floor((ms || 0) / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
 const DAY_MS = 24 * 60 * 60 * 1000;
 const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 function dateSeparatorLabel(ts, now = Date.now()) {
@@ -62,9 +63,6 @@ function dateSeparatorLabel(ts, now = Date.now()) {
   const d = new Date(ts);
   return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
-
-// Build the render list: day separators + per-message run flags (for grouping
-// + bottom-aligned avatars, the familiar messenger layout).
 function buildItems(messages) {
   const out = [];
   let lastDayKey = null;
@@ -92,8 +90,6 @@ function Avatar({ name, size = 32, tint }) {
   );
 }
 
-// Static mini waveform — the voice-first "this is audio" cue. Tinted to the
-// message emotion (incoming) or white (mine). Bars are deterministic.
 const WAVE = [7, 13, 9, 16, 10, 14, 8];
 function Waveform({ color, active }) {
   return (
@@ -105,8 +101,6 @@ function Waveform({ color, active }) {
   );
 }
 
-// The signature element: a per-message EMOTION chip — emoji + label + an
-// intensity meter + the audio tag — colored with the on-brand pastel accent.
 function EmotionChip({ emotion, intensity, mine }) {
   const e = EMOTION[emotion] || EMOTION.neutral;
   const accent = emotionColors[emotion] || colors.mutedSoft;
@@ -118,9 +112,7 @@ function EmotionChip({ emotion, intensity, mine }) {
       <View style={[styles.meter, mine ? styles.meterMine : styles.meterTheirs]}>
         <View style={{ width: `${pct * 100}%`, height: '100%', backgroundColor: accent, borderRadius: 999 }} />
       </View>
-      {!!e.tag && (
-        <Text style={[styles.tagText, mine ? styles.tagTextMine : styles.tagTextTheirs]}>{e.tag}</Text>
-      )}
+      {!!e.tag && <Text style={[styles.tagText, mine ? styles.tagTextMine : styles.tagTextTheirs]}>{e.tag}</Text>}
     </View>
   );
 }
@@ -130,20 +122,8 @@ function Bubble({ msg, onPlay, playing, contactName }) {
   const accent = emotionColors[msg.emotion] || colors.hairline;
   const waveColor = mine ? 'rgba(255,255,255,0.8)' : accent;
   return (
-    <View
-      style={[
-        styles.row,
-        mine ? styles.rowMine : styles.rowTheirs,
-        { marginTop: msg.firstOfRun ? spacing.sm : spacing.xxs },
-      ]}
-    >
-      {/* incoming avatar slot (bottom-aligned, only on the last of a run) */}
-      {!mine && (
-        <View style={styles.avatarSlot}>
-          {msg.lastOfRun ? <Avatar name={contactName} size={28} /> : null}
-        </View>
-      )}
-
+    <View style={[styles.row, mine ? styles.rowMine : styles.rowTheirs, { marginTop: msg.firstOfRun ? spacing.sm : spacing.xxs }]}>
+      {!mine && <View style={styles.avatarSlot}>{msg.lastOfRun ? <Avatar name={contactName} size={28} /> : null}</View>}
       <View style={styles.bubbleWrap}>
         <View
           style={[
@@ -155,11 +135,7 @@ function Bubble({ msg, onPlay, playing, contactName }) {
           ]}
         >
           <Text style={[styles.bubbleText, mine ? styles.textMine : styles.textTheirs]}>{msg.text}</Text>
-
-          {/* SIGNATURE: visible emotion metadata on every message */}
           {!!msg.emotion && <EmotionChip emotion={msg.emotion} intensity={msg.intensity} mine={mine} />}
-
-          {/* voice-first play row + time + receipt */}
           <View style={styles.footer}>
             <TouchableOpacity
               onPress={() => onPlay(msg.id)}
@@ -191,10 +167,13 @@ export default function ChatScreen({ roomId, userId, displayName, myVoiceId, con
   const { messages, peer, peerTyping, connection, playingId, send, play, setTyping } = useChat({
     roomId, userId, displayName, myVoiceId, contactVoiceId,
   });
+  const voice = useVoiceInput();
 
   const [draft, setDraft] = useState('');
+  const [handsFree, setHandsFree] = useState(false);
   const listRef = useRef(null);
   const typingTimer = useRef(null);
+  const lastReadRef = useRef(null);
 
   const contactName = title || peer?.displayName || 'Rozmowa';
   const items = useMemo(() => buildItems(messages), [messages]);
@@ -206,6 +185,16 @@ export default function ChatScreen({ roomId, userId, displayName, myVoiceId, con
       });
     }
   }, [messages.length, peerTyping]);
+
+  // Hands-free: auto-read each NEW incoming message aloud (in the contact's voice).
+  useEffect(() => {
+    if (!handsFree || !messages.length) return;
+    const last = messages[messages.length - 1];
+    if (!last.mine && last.id !== lastReadRef.current) {
+      lastReadRef.current = last.id;
+      play(last.id);
+    }
+  }, [messages, handsFree, play]);
 
   useEffect(() => () => { if (typingTimer.current) clearTimeout(typingTimer.current); }, []);
 
@@ -219,21 +208,33 @@ export default function ChatScreen({ roomId, userId, displayName, myVoiceId, con
     if (send(draft)) setDraft('');
   }
 
-  const presence =
-    peerTyping ? 'pisze…'
+  // --- voice dictation -----------------------------------------------------
+  async function micStart() {
+    voice.clearError();
+    await voice.start();
+  }
+  async function micDone() {
+    const text = await voice.stopAndTranscribe();
+    if (!text) return;
+    if (handsFree) {
+      send(text); // hands-free → speak-to-send (one tap)
+    } else {
+      setDraft((d) => (d ? `${d} ${text}` : text)); // review, then send
+    }
+  }
+  function micCancel() { voice.cancel(); }
+
+  const presence = peerTyping ? 'pisze…'
     : connection === 'online' ? 'online'
     : connection === 'offline' ? 'offline'
     : 'łączę…';
-  const presenceColor =
-    connection === 'online' ? colors.success
-    : connection === 'offline' ? colors.error
-    : colors.mutedSoft;
+  const presenceColor = connection === 'online' ? colors.success
+    : connection === 'offline' ? colors.error : colors.mutedSoft;
 
   return (
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <StatusBar barStyle="dark-content" />
 
-      {/* Header: avatar + name + presence — familiar messenger chrome. */}
       <View style={styles.header}>
         <Avatar name={contactName} size={40} />
         <View style={styles.headerText}>
@@ -243,11 +244,24 @@ export default function ChatScreen({ roomId, userId, displayName, myVoiceId, con
             <Text style={[styles.presence, peerTyping && styles.presenceTyping]}>{presence}</Text>
           </View>
         </View>
-        <View style={styles.headerVoice}>
-          <Text style={styles.headerVoiceLabel}>głos</Text>
-          <Text style={styles.headerVoiceName} numberOfLines={1}>🎙 {contactName}</Text>
-        </View>
+        {/* Hands-free toggle: auto-reads incoming + speak-to-send replies. */}
+        <TouchableOpacity
+          onPress={() => setHandsFree((v) => !v)}
+          style={[styles.hf, handsFree && styles.hfOn]}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: handsFree }}
+          accessibilityLabel="Tryb bezdotykowy — czyta na głos i odpowiadasz mówiąc"
+        >
+          <Text style={[styles.hfIcon, handsFree && styles.hfTextOn]}>🖐</Text>
+          <Text style={[styles.hfText, handsFree && styles.hfTextOn]}>{handsFree ? 'Bezdotykowo' : 'Bezdotykowo'}</Text>
+        </TouchableOpacity>
       </View>
+
+      {handsFree && (
+        <View style={styles.hfBanner}>
+          <Text style={styles.hfBannerText}>🎧 Czytam wiadomości na głos. Dotknij 🎙 i mów — wyślę od razu.</Text>
+        </View>
+      )}
 
       <FlatList
         ref={listRef}
@@ -257,42 +271,63 @@ export default function ChatScreen({ roomId, userId, displayName, myVoiceId, con
         keyExtractor={(it) => it.id}
         keyboardShouldPersistTaps="handled"
         renderItem={({ item }) =>
-          item._sep ? (
-            <DateSeparator label={item.label} />
-          ) : (
-            <Bubble msg={item} onPlay={play} playing={playingId === item.id} contactName={contactName} />
-          )
+          item._sep ? <DateSeparator label={item.label} /> : <Bubble msg={item} onPlay={play} playing={playingId === item.id} contactName={contactName} />
         }
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text style={styles.emptyEmoji}>🎧</Text>
             <Text style={styles.emptyTitle}>Rozmowa głosem</Text>
-            <Text style={styles.emptyText}>Wyślij wiadomość — odbiorca usłyszy ją Twoim głosem, z wykrytą emocją.</Text>
+            <Text style={styles.emptyText}>Napisz lub powiedz wiadomość 🎙 — odbiorca usłyszy ją Twoim głosem, z wykrytą emocją.</Text>
           </View>
         }
       />
 
-      <View style={styles.composer}>
-        <TextInput
-          style={styles.input}
-          value={draft}
-          onChangeText={onChange}
-          placeholder="Napisz — usłyszą to z emocją…"
-          placeholderTextColor={colors.mutedSoft}
-          multiline
-          onSubmitEditing={onSend}
-          returnKeyType="send"
-          blurOnSubmit={false}
-        />
-        <TouchableOpacity
-          style={[styles.sendBtn, !draft.trim() && styles.sendBtnOff]}
-          onPress={onSend}
-          disabled={!draft.trim()}
-          accessibilityLabel="Wyślij"
-        >
-          <Text style={styles.sendIcon}>↑</Text>
-        </TouchableOpacity>
-      </View>
+      {!!voice.error && (
+        <View style={styles.errBar}><Text style={styles.errText}>{voice.error}</Text></View>
+      )}
+
+      {/* Composer: recording bar / transcribing / normal (mic + input + send) */}
+      {voice.isRecording ? (
+        <View style={styles.composer}>
+          <View style={styles.recDot} />
+          <Text style={styles.recText}>Nagrywanie… {fmtDur(voice.durationMillis)}</Text>
+          <TouchableOpacity onPress={micCancel} style={styles.recCancel} accessibilityLabel="Anuluj nagrywanie">
+            <Text style={styles.recCancelText}>Anuluj</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={micDone} style={styles.recDone} accessibilityLabel="Zakończ i przepisz">
+            <Text style={styles.recDoneText}>Gotowe</Text>
+          </TouchableOpacity>
+        </View>
+      ) : voice.busy ? (
+        <View style={styles.composer}>
+          <Text style={styles.busyText}>⏳ Przetwarzam mowę…</Text>
+        </View>
+      ) : (
+        <View style={styles.composer}>
+          <TouchableOpacity onPress={micStart} style={styles.micBtn} accessibilityLabel="Powiedz wiadomość">
+            <Text style={styles.micIcon}>🎙</Text>
+          </TouchableOpacity>
+          <TextInput
+            style={styles.input}
+            value={draft}
+            onChangeText={onChange}
+            placeholder="Napisz lub powiedz 🎙…"
+            placeholderTextColor={colors.mutedSoft}
+            multiline
+            onSubmitEditing={onSend}
+            returnKeyType="send"
+            blurOnSubmit={false}
+          />
+          <TouchableOpacity
+            style={[styles.sendBtn, !draft.trim() && styles.sendBtnOff]}
+            onPress={onSend}
+            disabled={!draft.trim()}
+            accessibilityLabel="Wyślij"
+          >
+            <Text style={styles.sendIcon}>↑</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </KeyboardAvoidingView>
   );
 }
@@ -300,7 +335,6 @@ export default function ChatScreen({ roomId, userId, displayName, myVoiceId, con
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.canvas },
 
-  // Header
   header: {
     paddingTop: sizes.headerTopPad,
     paddingHorizontal: spacing.base,
@@ -317,11 +351,20 @@ const styles = StyleSheet.create({
   dot: { width: 7, height: 7, borderRadius: 4, marginRight: spacing.xs },
   presence: { ...type.caption, color: colors.muted },
   presenceTyping: { fontStyle: 'italic', color: colors.muted },
-  headerVoice: { alignItems: 'flex-end', maxWidth: 120 },
-  headerVoiceLabel: { ...type.overline, fontSize: 9, color: colors.mutedSoft, letterSpacing: 0.8 },
-  headerVoiceName: { ...type.caption, color: colors.body },
 
-  // Avatar
+  // Hands-free toggle pill.
+  hf: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 6, paddingHorizontal: spacing.sm, borderRadius: radius.pill,
+    borderWidth: sizes.hairlineWidth, borderColor: colors.hairlineStrong, backgroundColor: colors.surface,
+  },
+  hfOn: { backgroundColor: colors.ink, borderColor: colors.ink },
+  hfIcon: { fontSize: 14, marginRight: 6 },
+  hfText: { ...type.caption, fontSize: 12, fontWeight: '600', color: colors.muted },
+  hfTextOn: { color: colors.onPrimary },
+  hfBanner: { backgroundColor: colors.surfaceStrong, paddingHorizontal: spacing.base, paddingVertical: spacing.xs },
+  hfBannerText: { ...type.caption, fontSize: 12, color: colors.body, textAlign: 'center' },
+
   avatar: { backgroundColor: colors.surfaceStrong, alignItems: 'center', justifyContent: 'center' },
   avatarText: { ...type.button, color: colors.primary, fontSize: 14 },
 
@@ -335,7 +378,7 @@ const styles = StyleSheet.create({
 
   bubbleWrap: { maxWidth: '82%' },
   bubble: { borderRadius: radius.xl, paddingVertical: spacing.sm, paddingHorizontal: spacing.base },
-  bubbleMine: { backgroundColor: colors.ink, borderTopRightRadius: radius.xl, borderBottomRightRadius: radius.xl },
+  bubbleMine: { backgroundColor: colors.ink },
   bubbleTheirs: { backgroundColor: colors.surface, borderWidth: sizes.hairlineWidth, borderColor: colors.hairline },
   tailMine: { borderBottomRightRadius: radius.sm },
   tailTheirs: { borderBottomLeftRadius: radius.sm },
@@ -343,11 +386,9 @@ const styles = StyleSheet.create({
   textMine: { color: colors.onPrimary },
   textTheirs: { color: colors.ink },
 
-  // Emotion chip (the signature)
   chip: {
     flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start',
-    marginTop: spacing.xs, paddingVertical: 3, paddingHorizontal: spacing.xs,
-    borderRadius: radius.pill,
+    marginTop: spacing.xs, paddingVertical: 3, paddingHorizontal: spacing.xs, borderRadius: radius.pill,
   },
   chipTheirs: { backgroundColor: colors.surfaceStrong },
   chipMine: { backgroundColor: 'rgba(255,255,255,0.12)' },
@@ -362,12 +403,8 @@ const styles = StyleSheet.create({
   tagTextTheirs: { color: colors.mutedSoft },
   tagTextMine: { color: 'rgba(255,255,255,0.55)' },
 
-  // Footer: play + waveform + time + tick
   footer: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.xs },
-  playBtn: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingVertical: 5, paddingHorizontal: spacing.xs, borderRadius: radius.pill,
-  },
+  playBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: 5, paddingHorizontal: spacing.xs, borderRadius: radius.pill },
   playBtnMine: { backgroundColor: 'rgba(255,255,255,0.14)' },
   playBtnTheirs: { backgroundColor: 'rgba(12,10,9,0.05)' },
   playIcon: { fontSize: 11, fontWeight: '700', marginRight: spacing.xs },
@@ -377,26 +414,32 @@ const styles = StyleSheet.create({
   timeMine: { color: 'rgba(255,255,255,0.6)' },
   timeTheirs: { color: colors.mutedSoft },
   tick: { ...type.caption, fontSize: 11, color: 'rgba(255,255,255,0.6)', marginLeft: spacing.xs },
-  tickSeen: { color: gradientOrbsSeenTick() },
+  tickSeen: { color: gradientOrbs.mint },
 
-  // Day separator
   sepRow: { alignItems: 'center', marginVertical: spacing.sm },
   sepPill: { backgroundColor: colors.surfaceStrong, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: spacing.xxs },
   sepText: { ...type.caption, fontSize: 12, color: colors.muted },
 
-  // Empty state
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
   emptyEmoji: { fontSize: 40, marginBottom: spacing.sm },
   emptyTitle: { ...type.titleSm, color: colors.ink, marginBottom: spacing.xs },
   emptyText: { ...type.bodySm, color: colors.muted, textAlign: 'center', maxWidth: 280 },
 
-  // Composer
+  errBar: { backgroundColor: '#fdecec', paddingHorizontal: spacing.base, paddingVertical: spacing.xs, borderTopWidth: sizes.hairlineWidth, borderTopColor: '#f5c6c6' },
+  errText: { ...type.caption, fontSize: 12, color: colors.error, textAlign: 'center' },
+
   composer: {
-    flexDirection: 'row', alignItems: 'flex-end',
+    flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: spacing.sm, paddingTop: spacing.sm,
     paddingBottom: Platform.OS === 'ios' ? spacing.xl : spacing.sm,
     borderTopWidth: sizes.hairlineWidth, borderTopColor: colors.hairline, backgroundColor: colors.canvas,
   },
+  micBtn: {
+    width: sizes.ctaHeightMin, height: sizes.ctaHeightMin, borderRadius: radius.pill,
+    backgroundColor: colors.surfaceStrong, borderWidth: sizes.hairlineWidth, borderColor: colors.hairlineStrong,
+    alignItems: 'center', justifyContent: 'center', marginRight: spacing.xs,
+  },
+  micIcon: { fontSize: 20 },
   input: {
     flex: 1, ...type.body, backgroundColor: colors.surface, color: colors.ink,
     borderWidth: sizes.hairlineWidth, borderColor: colors.hairlineStrong, borderRadius: radius.md,
@@ -406,8 +449,13 @@ const styles = StyleSheet.create({
   sendBtn: { width: sizes.ctaHeightMin, height: sizes.ctaHeightMin, borderRadius: radius.pill, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' },
   sendBtnOff: { backgroundColor: colors.mutedSoft },
   sendIcon: { color: colors.onPrimary, fontSize: 22, fontWeight: '700', lineHeight: 24 },
-});
 
-// "seen" tick uses a soft mint to read as a positive confirmation on the ink
-// bubble without introducing a saturated UI color.
-function gradientOrbsSeenTick() { return '#a7e5d3'; }
+  // Recording bar
+  recDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: colors.error, marginRight: spacing.sm },
+  recText: { ...type.body, color: colors.ink, flex: 1 },
+  recCancel: { paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, marginRight: spacing.xs },
+  recCancelText: { ...type.button, color: colors.muted },
+  recDone: { paddingVertical: spacing.xs, paddingHorizontal: spacing.base, borderRadius: radius.pill, backgroundColor: colors.ink },
+  recDoneText: { ...type.button, color: colors.onPrimary },
+  busyText: { ...type.body, color: colors.muted, paddingVertical: spacing.sm },
+});
