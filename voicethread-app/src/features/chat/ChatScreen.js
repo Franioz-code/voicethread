@@ -20,7 +20,7 @@
 //     contactVoiceId={contactVoiceId}
 //   />
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -39,6 +39,62 @@ const EMOJI = {
   joy: '😊', sadness: '😔', anger: '😠', fear: '😨',
   affection: '❤️', surprise: '😮', neutral: '',
 };
+
+// --- date / time helpers (pure, screen-local) ------------------------------
+// Two-digit clock for the per-message timestamp, e.g. "09:05". Local time.
+function formatTime(ts) {
+  if (ts == null) return '';
+  const d = new Date(ts);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+function startOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+// Day-separator label between message groups: "Dziś" / "Wczoraj" / "DD.MM"
+// (zero-padded day.month for anything older). Polish, locale-free, deterministic.
+function dateSeparatorLabel(ts, now = Date.now()) {
+  if (ts == null) return '';
+  const dayDiff = Math.round((startOfDay(new Date(now)) - startOfDay(new Date(ts))) / DAY_MS);
+  if (dayDiff <= 0) return 'Dziś';
+  if (dayDiff === 1) return 'Wczoraj';
+  const d = new Date(ts);
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}.${mm}`;
+}
+
+// Interleave day-separator rows into the message list so the FlatList renders
+// "Dziś / Wczoraj / DD.MM" headers between days. Pure: maps a messages[] to a
+// mixed list of { _sep, id, label } and { _msg, ...message } rows.
+function withDateSeparators(messages) {
+  const out = [];
+  let lastDayKey = null;
+  for (const m of messages) {
+    const dayKey = startOfDay(new Date(m.ts || 0));
+    if (dayKey !== lastDayKey) {
+      out.push({ _sep: true, id: `sep-${dayKey}`, label: dateSeparatorLabel(m.ts) });
+      lastDayKey = dayKey;
+    }
+    out.push({ _msg: true, ...m });
+  }
+  return out;
+}
+
+// Centered, calm day separator — monochrome pill on the canvas (hairline border).
+function DateSeparator({ label }) {
+  return (
+    <View style={styles.sepRow} accessibilityRole="text" accessibilityLabel={label}>
+      <View style={styles.sepPill}>
+        <Text style={styles.sepText}>{label}</Text>
+      </View>
+    </View>
+  );
+}
 
 function ConnDot({ connection }) {
   // Status uses the brand's sparing status colors (success/error) with a calm
@@ -80,6 +136,11 @@ function Bubble({ msg, onPlay, playing }) {
             </Text>
           </TouchableOpacity>
           {!!emoji && <Text style={styles.bubbleEmoji}>{emoji}</Text>}
+          {/* Per-message timestamp — tinted to the bubble side, pushed to the
+              trailing edge so it sits with the receipt tick. */}
+          <Text style={[styles.time, mine ? styles.timeMine : styles.timeTheirs]}>
+            {formatTime(msg.ts)}
+          </Text>
           {mine && (
             <Text style={styles.tick}>
               {msg.status === 'delivered' ? '✓✓' : '✓'}
@@ -113,6 +174,9 @@ export default function ChatScreen({
   const [draft, setDraft] = useState('');
   const listRef = useRef(null);
   const typingTimer = useRef(null);
+
+  // Interleave day separators ("Dziś / Wczoraj / DD.MM") between message days.
+  const items = useMemo(() => withDateSeparators(messages), [messages]);
 
   // Auto-scroll to the newest message.
   useEffect(() => {
@@ -163,12 +227,16 @@ export default function ChatScreen({
         ref={listRef}
         style={styles.list}
         contentContainerStyle={styles.listContent}
-        data={messages}
-        keyExtractor={(m) => m.id}
+        data={items}
+        keyExtractor={(it) => it.id}
         keyboardShouldPersistTaps="handled"
-        renderItem={({ item }) => (
-          <Bubble msg={item} onPlay={play} playing={playingId === item.id} />
-        )}
+        renderItem={({ item }) =>
+          item._sep ? (
+            <DateSeparator label={item.label} />
+          ) : (
+            <Bubble msg={item} onPlay={play} playing={playingId === item.id} />
+          )
+        }
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text style={styles.emptyText}>
@@ -265,7 +333,21 @@ const styles = StyleSheet.create({
   playBtnTheirs: { backgroundColor: 'rgba(12,10,9,0.06)' },
   playIcon: { fontSize: 12, fontWeight: '700' },
   bubbleEmoji: { fontSize: 14, marginRight: spacing.xs },
-  tick: { ...type.caption, marginLeft: 'auto' },
+  // Timestamp — small, quiet, pushed to the trailing edge (tick follows it).
+  time: { ...type.caption, fontSize: 11, lineHeight: 14, marginLeft: 'auto' },
+  timeMine: { color: 'rgba(255,255,255,0.6)' },
+  timeTheirs: { color: colors.mutedSoft },
+  tick: { ...type.caption, color: 'rgba(255,255,255,0.6)', marginLeft: spacing.xs },
+
+  // Day separator — centered monochrome pill (surface + hairline) on the canvas.
+  sepRow: { alignItems: 'center', marginVertical: spacing.sm },
+  sepPill: {
+    backgroundColor: colors.surfaceStrong,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xxs,
+  },
+  sepText: { ...type.caption, fontSize: 12, color: colors.muted },
 
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
   emptyText: { ...type.bodySm, color: colors.muted, textAlign: 'center' },

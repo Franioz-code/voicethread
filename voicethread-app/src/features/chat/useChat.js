@@ -22,6 +22,7 @@ import { useCallback, useEffect, useReducer, useRef } from 'react';
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import { analyzeForSpeech } from '../emotion';
 import * as relay from '../../api/socket';
+import * as repo from '../../db/repo';
 
 const MODELS = { emotion: 'eleven_v3', fallback: 'eleven_multilingual_v2' };
 
@@ -47,8 +48,26 @@ const uid = () =>
 // --- message-list reducer (avoids stale closures across relay callbacks) ----
 function reducer(state, action) {
   switch (action.type) {
-    case 'add':
+    case 'add': {
+      // Dedup by id: a persisted-history seed + a live relay echo can both carry
+      // the same id; never render it twice (mirrors the repo's INSERT-OR-IGNORE).
+      if (state.some((m) => m.id === action.message.id)) return state;
       return [...state, action.message];
+    }
+    case 'load': {
+      // Seed from on-device history (oldest→newest), then keep any live messages
+      // that already landed before the async load resolved (deduped by id), all
+      // re-sorted by ts so the thread reads in order regardless of arrival race.
+      const seen = new Set();
+      const merged = [];
+      for (const m of [...(action.messages || []), ...state]) {
+        if (seen.has(m.id)) continue;
+        seen.add(m.id);
+        merged.push(m);
+      }
+      merged.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+      return merged;
+    }
     case 'delivered':
       return state.map((m) =>
         m.id === action.id && m.mine ? { ...m, status: 'delivered' } : m
@@ -128,6 +147,8 @@ export function useChat({
         playingRef.current = msg.id;
         force();
         player.play();
+        // Persist the ▶-played hint (idempotent) so it survives a reload.
+        repo.markPlayed(msg.id).catch(() => {});
         // Tell the peer we listened to their message (for read/▶ receipts).
         if (!msg.mine) { try { relay.played(msg.id); } catch { /* ignore */ } }
       } catch {
@@ -143,25 +164,58 @@ export function useChat({
     if (!roomId || !userId) return undefined;
 
     setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
+
+    // New room → drop any prior room's messages before seeding this one's
+    // history (the hook instance can be reused if roomId changes in place).
+    dispatch({ type: 'reset' });
+
+    // Load persisted history for THIS room and seed the list (oldest→newest),
+    // then clear unread for the chat we just opened. The DB is the source of
+    // truth for content (privacy-by-design: replays offline, no server round-
+    // trip). Guarded by `roomId` so switching rooms re-seeds from the right one.
+    let cancelled = false;
+    (async () => {
+      try {
+        const history = await repo.getMessages(roomId);
+        if (!cancelled && history.length) {
+          dispatch({ type: 'load', messages: history });
+        }
+      } catch { /* first run / no rows → start empty */ }
+      // Opening the chat marks it read: zero the badge + flip delivered→seen,
+      // and emit `seen`-style (delivered) receipts for exactly the flipped ids.
+      try {
+        const flipped = await repo.markConversationRead(roomId);
+        if (!cancelled) {
+          for (const id of flipped || []) {
+            try { relay.delivered(id); } catch { /* ignore */ }
+          }
+        }
+      } catch { /* no conversation row yet → nothing to clear */ }
+    })();
+
     relay.connect();
 
     const offMsg = relay.onMessage((payload) => {
       if (!payload || !payload.id) return;
-      dispatch({
-        type: 'add',
-        message: {
-          id: payload.id,
-          mine: false,
-          sender: payload.sender || peerRef.current?.displayName || 'Rozmówca',
-          text: payload.text || '',
-          ttsText: payload.ttsText || payload.text || '',
-          voiceId: payload.voiceId, // sender's own voice (fallback)
-          modelId: payload.modelId,
-          voiceSettings: payload.voiceSettings,
-          ts: payload.ts || Date.now(),
-          status: 'delivered',
-        },
-      });
+      const message = {
+        id: payload.id,
+        mine: false,
+        sender: payload.sender || peerRef.current?.displayName || 'Rozmówca',
+        text: payload.text || '',
+        ttsText: payload.ttsText || payload.text || '',
+        voiceId: payload.voiceId, // sender's own voice (fallback)
+        modelId: payload.modelId,
+        voiceSettings: payload.voiceSettings,
+        emotion: payload.emotion, // lets the bubble show an emoji
+        intensity: payload.intensity,
+        ts: payload.ts || Date.now(),
+        status: 'delivered',
+      };
+      dispatch({ type: 'add', message });
+      // Persist the received message (superset of the payload) so it replays
+      // identically offline. The chat is open → isOpen:true suppresses an unread
+      // bump and stores it as 'seen'; the reducer + repo both dedup by id.
+      repo.addMessage({ ...message, roomId }, { isOpen: true }).catch(() => {});
       // Peer stopped "typing" once a message lands.
       typingRef.current = false;
       // Confirm delivery back to the sender.
@@ -201,7 +255,11 @@ export function useChat({
           break;
         case 'delivered':
           // Peer acked one of OUR messages.
-          if (ev.messageId) dispatch({ type: 'delivered', id: ev.messageId });
+          if (ev.messageId) {
+            dispatch({ type: 'delivered', id: ev.messageId });
+            // Mirror the receipt into the store (monotonic; never regresses).
+            repo.updateMessageStatus(ev.messageId, 'delivered').catch(() => {});
+          }
           break;
         default:
           break;
@@ -212,6 +270,7 @@ export function useChat({
     relay.join(roomId, { userId, displayName });
 
     return () => {
+      cancelled = true;
       offMsg();
       offPeer();
       try { relay.leave(); } catch { /* ignore */ }
@@ -242,16 +301,18 @@ export function useChat({
         ts: Date.now(),
       };
 
-      dispatch({
-        type: 'add',
-        message: { ...payload, mine: true, status: 'sent' },
-      });
+      const mineMsg = { ...payload, mine: true, status: 'sent' };
+      dispatch({ type: 'add', message: mineMsg });
+      // Persist our own message so it survives a reload + drives the list
+      // preview/sort. isOpen:true is irrelevant for outgoing (no unread bump),
+      // but kept consistent with the receive path.
+      repo.addMessage({ ...mineMsg, roomId }, { isOpen: true }).catch(() => {});
       try { relay.sendMessage(payload); } catch { /* offline: stays 'sent' */ }
       // Sending implies we stopped typing.
       try { relay.typing(false); } catch { /* ignore */ }
       return payload;
     },
-    [displayName, myVoiceId]
+    [displayName, myVoiceId, roomId]
   );
 
   const setTyping = useCallback((isTyping) => {

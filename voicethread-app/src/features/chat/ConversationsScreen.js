@@ -202,12 +202,14 @@ function EmptyState({ onNewChat }) {
  * @param {object[]} [props.conversations]      repo.rowToConversation shapes
  * @param {function} props.onOpenConversation   (session) => void — open ChatScreen
  * @param {function} props.onNewChat            () => void — open the new-chat flow
+ * @param {function} [props.onSpeak]            () => void — open the "Mów" screen
  * @param {string}   [props.title]              header title (default "Rozmowy")
  */
 export default function ConversationsScreen({
   conversations = [],
   onOpenConversation,
   onNewChat,
+  onSpeak,
   title = 'Rozmowy',
 }) {
   // Snapshot "now" once per render so every row's relative time is consistent.
@@ -232,23 +234,38 @@ export default function ConversationsScreen({
     <View style={styles.screen}>
       <StatusBar barStyle="dark-content" />
 
-      {/* Header: canvas, hairline divider, ink title + "+ New chat" pill. */}
+      {/* Header: canvas, hairline divider, ink title + actions ("Mów" + "+ New chat"). */}
       <View style={styles.header}>
         <Text style={styles.title} numberOfLines={1} accessibilityRole="header">
           {title}
         </Text>
-        <TouchableOpacity
-          style={styles.newBtn}
-          onPress={onNewChat}
-          activeOpacity={0.85}
-          hitSlop={sizes.hitSlop}
-          accessibilityRole="button"
-          accessibilityLabel="Nowa rozmowa"
-          accessibilityHint="Otwiera tworzenie nowej rozmowy"
-        >
-          <Text style={styles.newBtnIcon}>＋</Text>
-          <Text style={styles.newBtnText} numberOfLines={1}>Nowa rozmowa</Text>
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          {onSpeak && (
+            <TouchableOpacity
+              style={styles.speakBtn}
+              onPress={onSpeak}
+              activeOpacity={0.7}
+              hitSlop={sizes.hitSlop}
+              accessibilityRole="button"
+              accessibilityLabel="Mów"
+              accessibilityHint="Otwiera tryb mówienia z emocjami"
+            >
+              <Text style={styles.speakBtnText} numberOfLines={1}>Mów</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={styles.newBtn}
+            onPress={onNewChat}
+            activeOpacity={0.85}
+            hitSlop={sizes.hitSlop}
+            accessibilityRole="button"
+            accessibilityLabel="Nowa rozmowa"
+            accessibilityHint="Otwiera tworzenie nowej rozmowy"
+          >
+            <Text style={styles.newBtnIcon}>＋</Text>
+            <Text style={styles.newBtnText} numberOfLines={1}>Nowa rozmowa</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <FlatList
@@ -284,6 +301,22 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   title: { ...type.titleMd, color: colors.ink, flexShrink: 1, paddingRight: spacing.sm },
+
+  // Header actions sit together on the trailing edge: a quiet "Mów" + the CTA.
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+
+  // "Mów" — secondary action: outline pill (hairline border, ink text), no fill,
+  // so it reads as subordinate to the primary "Nowa rozmowa" CTA.
+  speakBtn: {
+    borderRadius: radius.pill,
+    borderWidth: sizes.hairlineWidth,
+    borderColor: colors.hairlineStrong,
+    paddingHorizontal: spacing.base,
+    minHeight: sizes.tapMin,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  speakBtnText: { ...type.button, color: colors.ink },
 
   // "+ New chat" — compact ink pill CTA (brand CTA language, onPrimary text).
   newBtn: {
