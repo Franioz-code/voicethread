@@ -1,25 +1,32 @@
 // VoiceThread — App home.
 // ----------------------------------------------------------------------------
-// A simple home with two modes, toggled by a tab bar in the header:
+// The home is now the CONVERSATIONS LIST (milestone 2): an on-device, newest-
+// first list of chats (contact name, last-message preview, time, unread badge)
+// backed by the SQLite data layer (src/db/repo). From there you can:
 //
-//   • "Mów"  — the milestone-1 "speak with emotion" playground (unchanged):
-//              on-device emotion detection -> backend (ElevenLabs) TTS -> playback.
-//   • "Czat" — pair two phones: enter a shared pairing code, pick MY voice and the
-//              CONTACT's voice, then open the iMessage-style chat (milestone 2).
+//   • "+ Nowa rozmowa" → the pairing-code + voice-picker setup (ChatSetupScreen).
+//     Connecting create-or-resumes a conversation row (idempotent on the room
+//     code) and opens the iMessage-style chat (ChatScreen).
+//   • Tap a conversation → opens its ChatScreen using the STORED room code +
+//     voices, so reopening a chat replays its persisted history.
+//   • "Mów" (header action) → the milestone-1 "speak with emotion" playground
+//     (unchanged): on-device emotion detection → backend (ElevenLabs) TTS →
+//     playback. Still fully reachable, just no longer the landing surface.
 //
-// The milestone-1 pipeline is preserved verbatim inside <SpeakScreen/> — same
-// gesture/audio handlers, same network calls — it's just no longer the top-level
-// component. Both modes share ONE backend connection + ONE voices fetch, lifted
-// into <HomeScreen/> so we don't hit /api/voices twice.
+// IDENTITY: the relay userId + display name come from the persisted device
+// profile (repo.getProfile()/ensureDeviceId()) instead of a random per-session
+// id, so the same phone keeps a stable identity across launches.
 //
-// VISUAL LANGUAGE — re-skinned to ElevenLabs (see docs/ELEVENLABS-BRAND.md):
-// monochrome warm-stone canvas, ink pill CTAs, hairline borders, generous
-// spacing on a 4px grid, Inter type (light/tight display, positive-tracked body),
-// and a single soft pastel GradientOrb as atmosphere behind the wordmark. All
-// behaviour, network contracts and accessibility are preserved verbatim — this
-// is a re-skin, not a rebuild.
+// DATA LAYER: repo.open() runs ONCE at app start (gated splash) to create/migrate
+// the local DB before any screen reads it. Nothing here talks to a server for
+// durable state — the relay stays content-less; all history lives on-device.
+//
+// VISUAL LANGUAGE — ElevenLabs (see docs/ELEVENLABS-BRAND.md): monochrome warm-
+// stone canvas, ink pill CTAs, hairline borders, generous spacing on a 4px grid,
+// Inter type, and a soft pastel GradientOrb as atmosphere behind the wordmark.
+// All behaviour, network contracts and accessibility are preserved verbatim.
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   ScrollView,
@@ -34,6 +41,8 @@ import Constants from 'expo-constants';
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import { analyzeForSpeech } from './src/features/emotion';
 import ChatScreen from './src/features/chat/ChatScreen';
+import ConversationsScreen from './src/features/chat/ConversationsScreen';
+import * as repo from './src/db/repo';
 import {
   colors,
   emotionColors,
@@ -66,27 +75,52 @@ const PL = { joy: 'radość', sadness: 'smutek', anger: 'złość', fear: 'strac
 // eyes-free state instead of a button that silently "did something".
 const PLAY = { idle: 'idle', loading: 'loading', playing: 'playing' };
 
-const MODE = { speak: 'speak', chat: 'chat' };
+// Top-level views. The conversation list is the landing surface; the others are
+// full-screen and bring (or get) their own header.
+const VIEW = { list: 'list', newChat: 'newChat', chat: 'chat', speak: 'speak' };
 
 // ===========================================================================
-// HomeScreen — app shell: status header, mode tabs, shared voices fetch.
+// App — shell: opens the DB, loads the device profile + voices, and routes
+// between the conversation list, the new-chat setup, a live chat, and "Mów".
 // ===========================================================================
 export default function App() {
   // Load Inter for the brand type scale. Degrades to system font (returns true)
   // if the packages are unavailable, so first paint is never blocked.
-  useFont();
+  const fontsReady = useFont();
 
-  const [mode, setMode] = useState(MODE.speak);
+  const [dbReady, setDbReady] = useState(false);
+  const [profile, setProfile] = useState(null); // { deviceUserId, displayName, ... }
+
+  const [view, setView] = useState(VIEW.list);
   const [status, setStatus] = useState('Łączę z serwerem…');
   const [voices, setVoices] = useState([]);
   const [error, setError] = useState('');
-  // When set, a chat is live and takes over the WHOLE screen (ChatScreen brings
-  // its own header). null = still on the setup form. Lifted here so the chat can
-  // render without the app's header/tabs stacking on top of ChatScreen's header.
-  const [chatSession, setChatSession] = useState(null);
 
-  // ONE voices fetch shared by both modes (Speak preselects the first voice;
-  // Chat lets you pick MY + CONTACT voice from the same list).
+  // The active conversation (props ChatScreen consumes). null until one opens.
+  const [chatSession, setChatSession] = useState(null);
+  // On-device conversation list (repo.rowToConversation shapes), newest-first.
+  const [conversations, setConversations] = useState([]);
+
+  // --- open + migrate the local DB ONCE, then load the device profile -------
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await repo.open(); // create/migrate tables + ensure the device id
+        const p = await repo.getProfile();
+        if (!cancelled) setProfile(p);
+      } catch {
+        // Even if the profile read fails, let the app render — screens that need
+        // the DB will retry through repo's lazy open().
+      } finally {
+        if (!cancelled) setDbReady(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // ONE voices fetch shared by every mode (Speak preselects the first voice;
+  // the setup form lets you pick MY + CONTACT voice from the same list).
   useEffect(() => {
     setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
     fetch(`${BACKEND}/api/voices`)
@@ -104,9 +138,119 @@ export default function App() {
 
   const connected = voices.length > 0;
 
-  // Live chat: hand the entire screen to ChatScreen (it owns its own header),
-  // with a small "Rozłącz" overlay to return to the setup form.
-  if (mode === MODE.chat && chatSession) {
+  // Refresh the conversation list from the DB. Called on first ready and every
+  // time we return to the list (so previews/unread/time reflect new messages).
+  const refreshConversations = useCallback(async () => {
+    if (!dbReady) return;
+    try {
+      const list = await repo.getConversations(profile?.deviceUserId);
+      setConversations(list);
+    } catch {
+      setConversations([]);
+    }
+  }, [dbReady, profile?.deviceUserId]);
+
+  // Re-pull the list whenever we land on it (return-to-list refresh).
+  useEffect(() => {
+    if (view === VIEW.list) refreshConversations();
+  }, [view, refreshConversations]);
+
+  // --- new-chat flow: create-or-resume the conversation, then open it -------
+  // Faithful to the data-layer contract: findOrCreateConversation is idempotent
+  // on the room code, so re-pairing the same code resumes the existing thread.
+  const handleConnect = useCallback(
+    async (form) => {
+      const userId = profile?.deviceUserId;
+      const displayName = form.displayName || profile?.displayName || 'Ja';
+      // Persist the typed name as our profile display name (first time / changes),
+      // so it's the stable identity for future chats. Best-effort.
+      if (form.displayName && form.displayName !== profile?.displayName) {
+        repo.updateProfile({ displayName: form.displayName }).catch(() => {});
+      }
+      try {
+        const convo = await repo.findOrCreateConversation(
+          userId,
+          form.contactName,
+          form.contactVoiceId,
+          { roomCode: form.roomId, myVoiceId: form.myVoiceId }
+        );
+        openConversation({
+          roomId: convo.roomCode,
+          contactName: convo.contactName,
+          contactVoiceId: convo.contactVoiceId,
+          myVoiceId: convo.myVoiceId,
+        }, { userId, displayName });
+      } catch {
+        // If persistence somehow fails, still open the chat with the form values
+        // so the relay experience is never blocked by the local store.
+        openConversation(
+          {
+            roomId: form.roomId,
+            contactName: form.contactName,
+            contactVoiceId: form.contactVoiceId,
+            myVoiceId: form.myVoiceId,
+          },
+          { userId, displayName }
+        );
+      }
+    },
+    [profile?.deviceUserId, profile?.displayName]
+  );
+
+  // Open a chat for a conversation (from the list OR straight after pairing).
+  // The relay identity (userId/displayName) is OURS (from the profile); the
+  // conversation's contact name is the header title.
+  function openConversation(convo, identity) {
+    const userId = identity?.userId || profile?.deviceUserId;
+    const displayName = identity?.displayName || profile?.displayName || 'Ja';
+    setChatSession({
+      roomId: convo.roomId,
+      userId,
+      displayName,
+      myVoiceId: convo.myVoiceId,
+      contactVoiceId: convo.contactVoiceId,
+      title: convo.contactName,
+    });
+    setView(VIEW.chat);
+  }
+
+  // List → open a tapped conversation. ConversationsScreen hands us roomId +
+  // voices + contactName; we attach our own relay identity.
+  const handleOpenConversation = useCallback(
+    (session) => {
+      openConversation(
+        {
+          roomId: session.roomId,
+          contactName: session.contactName,
+          contactVoiceId: session.contactVoiceId,
+          myVoiceId: session.myVoiceId,
+        },
+        null
+      );
+    },
+    [profile?.deviceUserId, profile?.displayName]
+  );
+
+  // Leaving a chat returns to the list (which refreshes via the view effect).
+  function leaveChat() {
+    setChatSession(null);
+    setView(VIEW.list);
+  }
+
+  // --- gated splash: don't render screens until the DB is open + migrated ---
+  if (!dbReady || !fontsReady) {
+    return (
+      <View style={[styles.screen, styles.splash]}>
+        <StatusBar style="dark" />
+        <GradientOrb color={gradientOrbs.lavender} size={340} opacity={0.07} style={styles.splashOrb} />
+        <Wordmark size={32} motif="eleven" />
+        <ActivityIndicator color={colors.ink} style={styles.splashSpinner} />
+      </View>
+    );
+  }
+
+  // --- live chat: ChatScreen owns the whole screen (brings its own header) ---
+  if (view === VIEW.chat && chatSession) {
     return (
       <View style={styles.screen}>
         <StatusBar style="dark" />
@@ -116,83 +260,91 @@ export default function App() {
           displayName={chatSession.displayName}
           myVoiceId={chatSession.myVoiceId}
           contactVoiceId={chatSession.contactVoiceId}
+          title={chatSession.title}
         />
         <TouchableOpacity
           style={styles.leaveBtn}
-          onPress={() => setChatSession(null)}
+          onPress={leaveChat}
           hitSlop={sizes.hitSlop}
           accessibilityRole="button"
-          accessibilityLabel="Rozłącz i wróć do ustawień czatu"
+          accessibilityLabel="Wróć do listy rozmów"
         >
-          <Text style={styles.leaveText}>Rozłącz</Text>
+          <Text style={styles.leaveText}>Rozmowy</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
+  // --- "Mów" (speak with emotion) — reachable from the list's header --------
+  if (view === VIEW.speak) {
+    return (
+      <View style={styles.screen}>
+        <StatusBar style="dark" />
+        <SubHeader title="Mów" status={status} connected={connected} onBack={() => setView(VIEW.list)} />
+        <SpeakScreen voices={voices} status={status} error={error} />
+      </View>
+    );
+  }
+
+  // --- new-chat setup (pairing code + voice pickers) ------------------------
+  if (view === VIEW.newChat) {
+    return (
+      <View style={styles.screen}>
+        <StatusBar style="dark" />
+        <SubHeader title="Nowa rozmowa" status={status} connected={connected} onBack={() => setView(VIEW.list)} />
+        <ChatSetupScreen voices={voices} connected={connected} onConnect={handleConnect} />
+      </View>
+    );
+  }
+
+  // --- default: the conversation list (the home) ----------------------------
   return (
     <View style={styles.screen}>
       <StatusBar style="dark" />
-
-      <View style={styles.header}>
-        {/* Signature pastel bloom behind the wordmark — atmosphere only:
-            low opacity, large + soft, pointer-transparent, hidden from a11y. */}
-        <GradientOrb
-          color={gradientOrbs.lavender}
-          size={340}
-          opacity={0.07}
-          style={styles.headerOrb}
-        />
-
-        {/* Wordmark carries the title (Inter Light + tight tracking + "11" mark)
-            and its own accessibilityRole="header" / label="VoiceThread". */}
-        <Wordmark size={32} motif="eleven" />
-
-        <View style={styles.statusRow} accessibilityRole="text">
-          <View
-            style={[styles.statusDot, { backgroundColor: connected ? colors.success : colors.error }]}
-          />
-          <Text style={styles.status}>{status}</Text>
-        </View>
-
-        {/* Mode tabs --------------------------------------------------------- */}
-        <View style={styles.tabs} accessibilityRole="tablist">
-          <Tab label="Mów" active={mode === MODE.speak} onPress={() => setMode(MODE.speak)} />
-          <Tab label="Czat" active={mode === MODE.chat} onPress={() => setMode(MODE.chat)} />
-        </View>
-      </View>
-
-      {/* Body switches on the active mode. Each screen is self-contained;
-          only the connection state + voices list are shared. */}
-      {mode === MODE.speak ? (
-        <SpeakScreen voices={voices} status={status} error={error} />
-      ) : (
-        <ChatSetupScreen voices={voices} connected={connected} onJoin={setChatSession} />
-      )}
+      <ConversationsScreen
+        conversations={conversations}
+        onOpenConversation={handleOpenConversation}
+        onNewChat={() => setView(VIEW.newChat)}
+        onSpeak={() => setView(VIEW.speak)}
+      />
     </View>
   );
 }
 
-// Minimal tab: text-only, transparent. Active = ink text on a hairline-bordered
-// pill; inactive = muted text, no border. (Brand: "minimal tabs" recipe.)
-function Tab({ label, active, onPress }) {
+// A compact sub-screen header with a back action + live connection status, used
+// by the "Mów" and "Nowa rozmowa" screens (which don't carry their own header).
+function SubHeader({ title, status, connected, onBack }) {
   return (
-    <TouchableOpacity
-      style={[styles.tab, active && styles.tabActive]}
-      onPress={onPress}
-      hitSlop={sizes.hitSlop}
-      accessibilityRole="tab"
-      accessibilityState={{ selected: active }}
-      accessibilityLabel={`Tryb ${label}`}
-    >
-      <Text style={[styles.tabText, active && styles.tabTextActive]}>{label}</Text>
-    </TouchableOpacity>
+    <View style={styles.subHeader}>
+      <GradientOrb color={gradientOrbs.lavender} size={300} opacity={0.06} style={styles.headerOrb} />
+      <View style={styles.subHeaderTop}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={onBack}
+          hitSlop={sizes.hitSlop}
+          accessibilityRole="button"
+          accessibilityLabel="Wróć do listy rozmów"
+        >
+          <Text style={styles.backIcon}>‹</Text>
+          <Text style={styles.backText} numberOfLines={1}>Rozmowy</Text>
+        </TouchableOpacity>
+        <Text style={styles.subHeaderTitle} numberOfLines={1} accessibilityRole="header">
+          {title}
+        </Text>
+        {/* Spacer keeps the title visually centered against the back button. */}
+        <View style={styles.backBtnSpacer} />
+      </View>
+      <View style={styles.statusRow} accessibilityRole="text">
+        <View style={[styles.statusDot, { backgroundColor: connected ? colors.success : colors.error }]} />
+        <Text style={styles.status}>{status}</Text>
+      </View>
+    </View>
   );
 }
 
 // ===========================================================================
 // SpeakScreen — milestone-1 "speak with emotion" (behavior unchanged).
-// Receives the shared voices/status/error from HomeScreen; owns its own
+// Receives the shared voices/status/error from the shell; owns its own
 // selected voice + the full TTS playback lifecycle exactly as before.
 // ===========================================================================
 function SpeakScreen({ voices, status, error: connError }) {
@@ -214,7 +366,7 @@ function SpeakScreen({ voices, status, error: connError }) {
   // Surface a connection error from the shell as this screen's error banner.
   useEffect(() => { if (connError) setError(connError); }, [connError]);
 
-  // Stop playback when this screen unmounts (e.g. switching to Czat).
+  // Stop playback when this screen unmounts (e.g. switching back to the list).
   useEffect(() => () => { teardownPlayer(); }, []);
 
   function teardownPlayer() {
@@ -419,15 +571,17 @@ function SpeakScreen({ voices, status, error: connError }) {
 }
 
 // ===========================================================================
-// ChatSetupScreen — pair two phones, then open <ChatScreen/>.
-// Collects: a shared pairing code (roomId), MY display name, MY voice, and the
-// CONTACT's voice. Once a code + both voices are chosen, "Połącz" mounts the
-// chat. Props handed to ChatScreen (signature owned by features):
-//   roomId, userId, displayName, myVoiceId, contactVoiceId  (+ optional title)
+// ChatSetupScreen — pair two phones, then open <ChatScreen/> via onConnect.
+// Collects: a shared pairing code (roomId), MY display name, the CONTACT's
+// label (shown in the list/header), MY voice, and the CONTACT's voice. Once a
+// code + a contact name + both voices are chosen, "Połącz" reports a form up:
+//   { roomId, displayName, contactName, myVoiceId, contactVoiceId }
+// The shell (App) create-or-resumes the conversation row and opens the chat.
 // ===========================================================================
-function ChatSetupScreen({ voices, connected, onJoin }) {
+function ChatSetupScreen({ voices, connected, onConnect }) {
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
+  const [contact, setContact] = useState('');
   const [myVoiceId, setMyVoiceId] = useState(null);
   const [contactVoiceId, setContactVoiceId] = useState(null);
 
@@ -441,21 +595,15 @@ function ChatSetupScreen({ voices, connected, onJoin }) {
 
   const roomId = code.trim();
   const displayName = name.trim() || 'Ja';
-  const ready = connected && roomId.length > 0 && !!myVoiceId && !!contactVoiceId;
-
-  // A stable per-device id for the relay. Persisting isn't needed for the PoC;
-  // a fresh id per session is fine and keeps two phones distinct.
-  const userIdRef = useRef(null);
-  if (!userIdRef.current) {
-    userIdRef.current = `u-${Math.random().toString(36).slice(2, 9)}`;
-  }
+  const contactName = contact.trim();
+  const ready = connected && roomId.length > 0 && contactName.length > 0 && !!myVoiceId && !!contactVoiceId;
 
   function connect() {
     if (!ready) return;
-    onJoin({
+    onConnect?.({
       roomId,
-      userId: userIdRef.current,
       displayName,
+      contactName,
       myVoiceId,
       contactVoiceId,
     });
@@ -466,7 +614,7 @@ function ChatSetupScreen({ voices, connected, onJoin }) {
       {/* Pairing code ---------------------------------------------------- */}
       <Text style={styles.label} accessibilityRole="text">Kod pokoju</Text>
       <TextInput
-        style={styles.input}
+        style={styles.inputShort}
         value={code}
         onChangeText={setCode}
         placeholder="np. kuchnia-2207"
@@ -479,6 +627,19 @@ function ChatSetupScreen({ voices, connected, onJoin }) {
       <Text style={styles.hintLeft}>
         Wpiszcie ten sam kod na obu telefonach.
       </Text>
+
+      {/* Contact name (the conversation label) --------------------------- */}
+      <Text style={styles.label} accessibilityRole="text">Nazwa rozmowy</Text>
+      <TextInput
+        style={styles.inputShort}
+        value={contact}
+        onChangeText={setContact}
+        placeholder="np. Mama"
+        placeholderTextColor={colors.mutedSoft}
+        autoCorrect={false}
+        accessibilityLabel="Nazwa rozmowy widoczna na liście"
+        accessibilityHint="Etykieta tej rozmowy na liście rozmów."
+      />
 
       {/* My name --------------------------------------------------------- */}
       <Text style={styles.label} accessibilityRole="text">Twoja nazwa</Text>
@@ -524,6 +685,7 @@ function ChatSetupScreen({ voices, connected, onJoin }) {
         accessibilityHint={
           !connected ? 'Niedostępne — brak połączenia z serwerem.'
           : !roomId ? 'Niedostępne — najpierw wpisz kod pokoju.'
+          : !contactName ? 'Niedostępne — najpierw podaj nazwę rozmowy.'
           : 'Otwiera rozmowę z wybranymi głosami.'
         }
       >
@@ -535,6 +697,7 @@ function ChatSetupScreen({ voices, connected, onJoin }) {
         <Text style={styles.hint}>
           {!connected ? 'Połącz się z serwerem, aby rozpocząć czat.'
             : !roomId ? 'Wpisz kod pokoju, aby się połączyć.'
+            : !contactName ? 'Podaj nazwę rozmowy, aby kontynuować.'
             : 'Wybierz oba głosy, aby kontynuować.'}
         </Text>
       )}
@@ -601,51 +764,41 @@ function plural(n, one, few, many) {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.canvas },
 
-  header: {
+  // Splash — centered wordmark + spinner while the DB opens / fonts load.
+  splash: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  splashOrb: { position: 'absolute', top: '30%' },
+  splashSpinner: { marginTop: spacing.lg },
+
+  // Sub-screen header (Mów / Nowa rozmowa): canvas band, hairline divider,
+  // back action + centered title + connection status. Clips the GradientOrb.
+  subHeader: {
     paddingTop: sizes.headerTopPad,
-    paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.lg,
+    paddingHorizontal: spacing.base,
+    paddingBottom: spacing.sm,
     borderBottomWidth: sizes.hairlineWidth,
     borderBottomColor: colors.hairline,
     backgroundColor: colors.canvas,
-    overflow: 'hidden', // clip the GradientOrb bloom to the header band
+    overflow: 'hidden',
   },
-  // Soft pastel bloom behind the wordmark — pulled up/left so only its lower
-  // edge feathers into the header (atmosphere, not a shape).
-  headerOrb: {
-    position: 'absolute',
-    top: -180,
-    left: -90,
+  headerOrb: { position: 'absolute', top: -180, left: -90 },
+  subHeaderTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  subHeaderTitle: { ...type.titleMd, color: colors.ink, flexShrink: 1, textAlign: 'center' },
+  // Back action — quiet, ink chevron + label, no fill (subordinate to content).
+  backBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: sizes.tapMin,
+    paddingRight: spacing.sm,
+    minWidth: 96,
   },
+  // A matching-width spacer balances the back button so the title centers.
+  backBtnSpacer: { minWidth: 96 },
+  backIcon: { color: colors.ink, fontSize: 28, lineHeight: 30, marginRight: spacing.xxs },
+  backText: { ...type.button, color: colors.ink },
 
   statusRow: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.sm },
   statusDot: { width: 8, height: 8, borderRadius: radius.pill, marginRight: spacing.xs },
   status: { color: colors.muted, ...type.caption },
-
-  // Mode tabs — minimal: transparent, hairline border, ink text + pill when
-  // selected, muted when not. (Brand "minimal tabs" recipe.)
-  tabs: {
-    flexDirection: 'row',
-    marginTop: spacing.md,
-    gap: spacing.sm,
-  },
-  tab: {
-    flex: 1,
-    minHeight: sizes.tapMin,
-    borderRadius: radius.pill,
-    borderWidth: sizes.hairlineWidth,
-    borderColor: 'transparent',
-    backgroundColor: 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.sm,
-  },
-  tabActive: {
-    borderColor: colors.hairline,
-    backgroundColor: colors.surface,
-  },
-  tabText: { color: colors.muted, ...type.button },
-  tabTextActive: { color: colors.ink },
 
   body: { padding: spacing.xl, gap: spacing.md, paddingBottom: spacing.section },
 
@@ -768,7 +921,7 @@ const styles = StyleSheet.create({
 
   footer: { color: colors.mutedSoft, ...type.caption, marginTop: spacing.xl, textAlign: 'center' },
 
-  // "Rozłącz" floats over ChatScreen's own header (which we can't edit). Pinned
+  // "Rozmowy" floats over ChatScreen's own header (which we can't edit). Pinned
   // top-right in the notch-clear band; sits above ChatScreen's bottom-aligned
   // header content (title + #room), so it doesn't collide with them.
   // Ink pill — the same CTA language as the rest of the app.
