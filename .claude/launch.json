@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "voicethread-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "voicethread-app", "run", "web", "--", "--port", "8090"],
+      "port": 8090
+    },
+    {
+      "name": "voicethread-static",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["--yes", "serve", "-s", "voicethread-app/dist", "-l", "8091"],
+      "port": 8091
+    }
+  ]
+}
