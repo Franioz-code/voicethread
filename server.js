@@ -230,6 +230,17 @@ app.use((req, res, next) => {
 
 app.use(express.json({ limit: '256kb' })); // parses JSON bodies for /api/tts (small JSON only)
 
+// Permissive CORS for the local Expo WEB build (served from a different port) so
+// it can call /api/* from the browser. Native apps don't need it; the API key
+// stays server-side and no credentials/cookies are used, so '*' is safe here.
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
 // Turn body-parser failures (malformed JSON / payload too large) into a clean
 // 4xx instead of a stack trace. Never echoes the offending body back.
 app.use((err, req, res, next) => {

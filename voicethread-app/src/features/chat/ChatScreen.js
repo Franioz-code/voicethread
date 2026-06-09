@@ -163,7 +163,7 @@ function DateSeparator({ label }) {
   );
 }
 
-export default function ChatScreen({ roomId, userId, displayName, myVoiceId, contactVoiceId, title }) {
+export default function ChatScreen({ roomId, userId, displayName, myVoiceId, contactVoiceId, title, onBack }) {
   const { messages, peer, peerTyping, connection, playingId, send, play, setTyping } = useChat({
     roomId, userId, displayName, myVoiceId, contactVoiceId,
   });
@@ -236,6 +236,11 @@ export default function ChatScreen({ roomId, userId, displayName, myVoiceId, con
       <StatusBar barStyle="dark-content" />
 
       <View style={styles.header}>
+        {onBack && (
+          <TouchableOpacity onPress={onBack} hitSlop={sizes.hitSlop} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Wróć do listy rozmów">
+            <Text style={styles.backChevron}>‹</Text>
+          </TouchableOpacity>
+        )}
         <Avatar name={contactName} size={40} />
         <View style={styles.headerText}>
           <Text style={styles.title} numberOfLines={1}>{contactName}</Text>
@@ -345,6 +350,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.surface,
   },
+  backBtn: { paddingRight: spacing.xs, justifyContent: 'center' },
+  backChevron: { fontSize: 30, color: colors.ink, lineHeight: 32, marginTop: -2 },
   headerText: { flex: 1, marginLeft: spacing.sm },
   title: { ...type.titleMd, color: colors.ink },
   presenceRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },

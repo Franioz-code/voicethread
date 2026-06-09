@@ -280,16 +280,8 @@ export default function App() {
           myVoiceId={chatSession.myVoiceId}
           contactVoiceId={chatSession.contactVoiceId}
           title={chatSession.title}
+          onBack={leaveChat}
         />
-        <TouchableOpacity
-          style={styles.leaveBtn}
-          onPress={leaveChat}
-          hitSlop={sizes.hitSlop}
-          accessibilityRole="button"
-          accessibilityLabel="Wróć do listy rozmów"
-        >
-          <Text style={styles.leaveText}>Rozmowy</Text>
-        </TouchableOpacity>
       </View>
     );
   }

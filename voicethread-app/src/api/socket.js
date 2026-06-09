@@ -111,6 +111,7 @@ export function connect() {
 /** Join (or create) a 2-person room. `user` = { userId, displayName }. */
 export function join(roomId, user = {}) {
   const s = connect();
+  if (!s) return; // web preview has no relay socket (see connect())
   s.emit('join', {
     roomId,
     userId: user.userId,
