@@ -12,6 +12,20 @@ On‑device emotion detection → ElevenLabs `eleven_v3` emotion tags · dictate
 
 ---
 
+## 💬 Why it exists
+
+Plain text strips the tone out of what we say. The same words — *"fine"*, *"sure"*,
+*"we need to talk"* — can read as warm, flat, sarcastic or cold, depending on a
+delivery the reader never hears. That missing layer is where ordinary messengers
+quietly fail: a neutral *"ok"* comes across as annoyed, a joke lands as an insult,
+and small misreadings pile up into real friction — and conflict — in relationships.
+
+**VoiceThread puts the tone back.** It detects the **emotion behind a message** —
+from your **voice** when you speak it, or from the text — stores it *with* the
+message, and carries it to the other person, who **hears it in a real voice with
+the right feeling**. An *"I'm fine"* that's genuinely fine no longer lands as cold;
+a message is understood the way you meant it.
+
 ## ✨ What makes it different
 
 Most messengers show text. VoiceThread treats **voice + emotion as first‑class data**:
