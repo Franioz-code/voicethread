@@ -58,29 +58,40 @@ export function useVoiceInput() {
     setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => {});
     if (!uri) {
       setError('Nagranie jest puste.');
-      return '';
+      return { text: '', voiceEmotion: null };
     }
     setBusy(true);
     try {
       const fileResp = await fetch(uri);
       const blob = await fileResp.blob();
-      const resp = await fetch(`${relay.BACKEND_URL}/api/stt`, {
-        method: 'POST',
-        headers: { 'Content-Type': blob.type || 'audio/mp4' },
-        body: blob,
+      const ct = blob.type || 'audio/mp4';
+      // Transcribe (Scribe) AND detect emotion FROM THE VOICE (emotion2vec) from
+      // the SAME recording, in parallel. The emotion service is OPTIONAL — if it
+      // is down (/api/emotion → 503), voiceEmotion is null and the caller falls
+      // back to text-based emotion, so dictation never breaks.
+      const sttP = fetch(`${relay.BACKEND_URL}/api/stt`, {
+        method: 'POST', headers: { 'Content-Type': ct }, body: blob,
+      }).then(async (r) => {
+        if (!r.ok) {
+          let msg = 'Nie udało się przetranskrybować nagrania.';
+          try { msg = (await r.json()).error || msg; } catch { /* ignore */ }
+          throw new Error(msg);
+        }
+        return ((await r.json()).text || '').trim();
       });
-      if (!resp.ok) {
-        let msg = 'Nie udało się przetranskrybować nagrania.';
-        try { msg = (await resp.json()).error || msg; } catch { /* ignore */ }
-        throw new Error(msg);
-      }
-      const { text } = await resp.json();
-      const clean = (text || '').trim();
-      if (!clean) setError('Nie rozpoznano mowy. Spróbuj jeszcze raz.');
-      return clean;
+      const emoP = fetch(`${relay.BACKEND_URL}/api/emotion`, {
+        method: 'POST', headers: { 'Content-Type': ct }, body: blob,
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => (d && d.emotion ? { emotion: d.emotion, intensity: d.intensity } : null))
+        .catch(() => null);
+
+      const [text, voiceEmotion] = await Promise.all([sttP, emoP]);
+      if (!text) setError('Nie rozpoznano mowy. Spróbuj jeszcze raz.');
+      return { text, voiceEmotion };
     } catch (e) {
       setError(e.message || 'Błąd transkrypcji.');
-      return '';
+      return { text: '', voiceEmotion: null };
     } finally {
       setBusy(false);
     }

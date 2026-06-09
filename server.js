@@ -405,6 +405,32 @@ app.post('/api/stt', express.raw({ type: () => true, limit: '25mb' }), async (re
 });
 
 // ===========================================================================
+//  POST /api/emotion   body: raw audio bytes   ->   { emotion, intensity, raw }
+//  ---- Speech Emotion Recognition (emotion from VOICE, not text) ----------
+//  Proxies the recorded audio to the local emotion2vec microservice
+//  (emotion-service/, FunASR). Lets a DICTATED message take its emotion from
+//  HOW it was spoken. If the service isn't running, returns 503 so the app
+//  gracefully falls back to text-based emotion.
+// ===========================================================================
+app.post('/api/emotion', express.raw({ type: () => true, limit: '25mb' }), async (req, res) => {
+  if (!req.body || !req.body.length) return res.status(400).json({ error: 'Brak danych audio.' });
+  const service = process.env.EMOTION_SERVICE_URL || 'http://127.0.0.1:8200';
+  try {
+    const r = await fetch(`${service}/emotion`, {
+      method: 'POST',
+      headers: { 'Content-Type': req.headers['content-type'] || 'application/octet-stream' },
+      body: req.body,
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) return res.status(502).json({ error: data.error || 'Serwis emocji zwrócił błąd.' });
+    res.json(data); // { emotion, intensity, raw }
+  } catch (err) {
+    // Service unreachable → 503; the app falls back to text emotion.
+    res.status(503).json({ error: 'Serwis emocji niedostępny (uruchom emotion-service).' });
+  }
+});
+
+// ===========================================================================
 //  POST /api/voices/add?name=...   body: raw audio sample (1-2 min)  -> { voiceId }
 //  ---- ElevenLabs Instant Voice Cloning (IVC) -----------------------------
 //  Forwards a recorded sample to ElevenLabs to create a cloned voice.

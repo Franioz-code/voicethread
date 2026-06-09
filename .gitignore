@@ -14,5 +14,9 @@ node_modules/
 _*_backup/
 # installed external skills
 .agents/
+# python venv + caches (emotion-service)
+**/.venv/
+**/__pycache__/
+*.pyc
 # local Claude Code config (keep workflows; drop personal settings)
 .claude/settings.local.json

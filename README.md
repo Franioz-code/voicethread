@@ -16,7 +16,7 @@ On‑device emotion detection → ElevenLabs `eleven_v3` emotion tags · dictate
 
 Most messengers show text. VoiceThread treats **voice + emotion as first‑class data**:
 
-- 🎭 **Visible emotion metadata on every message.** Emotion is detected **on‑device** as you type, stored *with* the message, and shown in the bubble (emoji + label + intensity + the actual `[happy]`/`[sad]` audio tag). It drives an **accurate spoken replay** — the same message always sounds the same, in the right feeling.
+- 🎭 **Visible emotion metadata on every message.** Typed → emotion detected **on‑device** from the text; **dictated → emotion read from your VOICE** via the open‑source **[emotion2vec](https://huggingface.co/emotion2vec/emotion2vec_plus_base)** SER model (local `emotion-service/`, proxied at `POST /api/emotion`). Either way it's stored *with* the message and shown in the bubble (emoji + label + intensity + the real `[happy]`/`[sad]` audio tag), driving an **accurate spoken replay**.
 - 🔊 **A real voice per contact.** Each conversation reads incoming messages aloud in that person's chosen ElevenLabs voice (`eleven_v3` for emotion, `flash` for speed).
 - 🎙️ **Dictate by voice.** Tap the mic, speak, and ElevenLabs **Scribe** transcribes it (Polish + mixed languages) into a message.
 - 🖐️ **Hands‑free mode.** Auto‑reads incoming messages aloud and lets you reply with one tap — built for eyes‑free use (e.g. driving).
@@ -157,6 +157,7 @@ Zero‑credit: tests never call ElevenLabs (the emotion engine and schema are pu
 ├── public/index.html             # original single‑file web prototype (where it started)
 ├── tests/                        # backend + relay tests
 ├── docs/                         # brand spec, messenger backlog, ADRs
+├── emotion-service/             # emotion-from-voice microservice (emotion2vec SER, optional)
 └── voicethread-app/              # the Expo app
     └── src/
         ├── db/                   # SQLite schema + repository (local history)

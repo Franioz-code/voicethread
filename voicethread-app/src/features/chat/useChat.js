@@ -20,7 +20,7 @@
 
 import { useCallback, useEffect, useReducer, useRef } from 'react';
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
-import { analyzeForSpeech } from '../emotion';
+import { analyzeForSpeech, emotionToSynthesis, applyTags } from '../emotion';
 import * as relay from '../../api/socket';
 import * as repo from '../../db/repo';
 
@@ -281,12 +281,24 @@ export function useChat({
 
   // --- actions --------------------------------------------------------------
   const send = useCallback(
-    (raw) => {
+    (raw, voiceEmotion) => {
       const text = (raw || '').trim();
       if (!text) return null;
 
-      // On-device emotion → tags + model + voice settings + tagged ttsText.
-      const meta = analyzeForSpeech(text, { models: MODELS });
+      // Emotion source: a VOICE-derived emotion (from dictation, via emotion2vec)
+      // WINS over the text classifier — so a spoken message carries HOW you said
+      // it, not just the words. Falls back to on-device text analysis otherwise.
+      let meta;
+      if (voiceEmotion && voiceEmotion.emotion) {
+        const intensity = voiceEmotion.intensity != null ? voiceEmotion.intensity : 0.6;
+        const { tags, modelId, voiceSettings } = emotionToSynthesis(
+          { emotion: voiceEmotion.emotion, intensity },
+          { models: MODELS }
+        );
+        meta = { emotion: voiceEmotion.emotion, intensity, tags, modelId, voiceSettings, ttsText: applyTags(text, tags) };
+      } else {
+        meta = analyzeForSpeech(text, { models: MODELS });
+      }
 
       const payload = {
         id: uid(),

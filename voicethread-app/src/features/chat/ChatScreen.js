@@ -171,6 +171,7 @@ export default function ChatScreen({ roomId, userId, displayName, myVoiceId, con
 
   const [draft, setDraft] = useState('');
   const [handsFree, setHandsFree] = useState(false);
+  const [voiceEmotion, setVoiceEmotion] = useState(null); // emotion detected from the spoken recording
   const listRef = useRef(null);
   const typingTimer = useRef(null);
   const lastReadRef = useRef(null);
@@ -200,12 +201,13 @@ export default function ChatScreen({ roomId, userId, displayName, myVoiceId, con
 
   function onChange(text) {
     setDraft(text);
+    setVoiceEmotion(null); // typed/edited text → emotion comes from text again
     setTyping(text.length > 0);
     if (typingTimer.current) clearTimeout(typingTimer.current);
     typingTimer.current = setTimeout(() => setTyping(false), 1500);
   }
   function onSend() {
-    if (send(draft)) setDraft('');
+    if (send(draft, voiceEmotion)) { setDraft(''); setVoiceEmotion(null); }
   }
 
   // --- voice dictation -----------------------------------------------------
@@ -214,12 +216,13 @@ export default function ChatScreen({ roomId, userId, displayName, myVoiceId, con
     await voice.start();
   }
   async function micDone() {
-    const text = await voice.stopAndTranscribe();
+    const { text, voiceEmotion: ve } = await voice.stopAndTranscribe();
     if (!text) return;
     if (handsFree) {
-      send(text); // hands-free → speak-to-send (one tap)
+      send(text, ve); // hands-free → speak-to-send, emotion FROM your voice
     } else {
-      setDraft((d) => (d ? `${d} ${text}` : text)); // review, then send
+      setVoiceEmotion(ve || null);
+      setDraft((d) => (d ? `${d} ${text}` : text)); // review, then send (keeps voice emotion)
     }
   }
   function micCancel() { voice.cancel(); }
@@ -289,6 +292,14 @@ export default function ChatScreen({ roomId, userId, displayName, myVoiceId, con
 
       {!!voice.error && (
         <View style={styles.errBar}><Text style={styles.errText}>{voice.error}</Text></View>
+      )}
+
+      {voiceEmotion && !voice.isRecording && !voice.busy && (
+        <View style={styles.veBar}>
+          <Text style={styles.veText}>
+            🎙 emocja z głosu: {(EMOTION[voiceEmotion.emotion] || EMOTION.neutral).emoji} {(EMOTION[voiceEmotion.emotion] || EMOTION.neutral).label}
+          </Text>
+        </View>
       )}
 
       {/* Composer: recording bar / transcribing / normal (mic + input + send) */}
@@ -434,6 +445,8 @@ const styles = StyleSheet.create({
 
   errBar: { backgroundColor: '#fdecec', paddingHorizontal: spacing.base, paddingVertical: spacing.xs, borderTopWidth: sizes.hairlineWidth, borderTopColor: '#f5c6c6' },
   errText: { ...type.caption, fontSize: 12, color: colors.error, textAlign: 'center' },
+  veBar: { backgroundColor: colors.surfaceStrong, paddingHorizontal: spacing.base, paddingVertical: spacing.xs },
+  veText: { ...type.caption, fontSize: 12, color: colors.body, textAlign: 'center' },
 
   composer: {
     flexDirection: 'row', alignItems: 'center',
