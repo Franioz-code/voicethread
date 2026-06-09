@@ -1,249 +1,175 @@
-# VoiceThread 🗣️💬
+<div align="center">
 
-Turn an SMS-style message thread into a **natural spoken conversation** using the
-[ElevenLabs](https://elevenlabs.io) API — with a **different voice for each person**.
+# VoiceThread 🗣️
 
-Built for one situation: two people staying in touch when one of them can't talk
-or type (for example, while **driving**). Incoming texts are read aloud in a
-natural human voice, and you can reply by **speaking**.
+**A voice‑first messenger where every message is read aloud — in each contact's own voice, with the emotion it was written with.**
 
-- **Backend:** Node.js + Express. Holds the ElevenLabs API key and proxies *all*
-  ElevenLabs calls — the key is **never** exposed to the browser.
-- **Frontend:** one static page, vanilla HTML/CSS/JS (no framework). Native
-  `<audio>` for playback, `MediaRecorder` for the mic.
+On‑device emotion detection → ElevenLabs `eleven_v3` emotion tags · dictate by voice (Scribe) · clone your own voice (IVC) · hands‑free reading.
+
+![Expo SDK 54](https://img.shields.io/badge/Expo-SDK%2054-000?logo=expo) ![React Native](https://img.shields.io/badge/React%20Native-0.81-61dafb?logo=react) ![Node](https://img.shields.io/badge/Node-22-339933?logo=nodedotjs) ![ElevenLabs](https://img.shields.io/badge/ElevenLabs-TTS%20%C2%B7%20STT%20%C2%B7%20IVC-111) ![License](https://img.shields.io/badge/license-MIT-blue)
+
+</div>
 
 ---
 
-## What it does
+## ✨ What makes it different
 
-- 📱 Shows a hardcoded Polish thread between **Ola** and **Franek** as iMessage-style bubbles.
-- ▶️ **Odtwórz rozmowę** ("Play conversation") reads the whole thread in order,
-  using a distinct ElevenLabs voice per person, via the multilingual model so Polish sounds natural.
-- ▶︎ A small play button on **each** message.
-- 🎤 **Odpowiedz głosem** ("Reply by voice") — record a Polish reply, it's transcribed
-  by ElevenLabs Scribe, added to the thread as your message, and read back automatically.
-- 🚗 **Tryb jazdy** ("Driving mode") — big buttons, simplified layout, and new
-  incoming messages are read aloud automatically. Eyes-free.
+Most messengers show text. VoiceThread treats **voice + emotion as first‑class data**:
+
+- 🎭 **Visible emotion metadata on every message.** Emotion is detected **on‑device** as you type, stored *with* the message, and shown in the bubble (emoji + label + intensity + the actual `[happy]`/`[sad]` audio tag). It drives an **accurate spoken replay** — the same message always sounds the same, in the right feeling.
+- 🔊 **A real voice per contact.** Each conversation reads incoming messages aloud in that person's chosen ElevenLabs voice (`eleven_v3` for emotion, `flash` for speed).
+- 🎙️ **Dictate by voice.** Tap the mic, speak, and ElevenLabs **Scribe** transcribes it (Polish + mixed languages) into a message.
+- 🖐️ **Hands‑free mode.** Auto‑reads incoming messages aloud and lets you reply with one tap — built for eyes‑free use (e.g. driving).
+- 🧬 **Clone your own voice.** Record ~40 s and ElevenLabs **Instant Voice Cloning** makes your messages sound like *you*. Gracefully degrades to premade voices on the free tier.
+- 🔒 **Privacy by design.** Emotion is computed locally; the relay forwards messages and **stores nothing**; text reaches ElevenLabs only transiently to synthesize/transcribe.
+- 🎨 **Looks like an ElevenLabs product.** Warm‑stone canvas, monochrome bubbles, Inter type, pastel emotion accents from the gradient‑orb palette.
+
+> Built as a portfolio **proof‑of‑concept** to showcase the ElevenLabs platform end‑to‑end.
 
 ---
 
-## Setup & run
+## 🎬 Demo
 
-### 1. Get a free ElevenLabs API key
+> _Add a short screen recording / screenshots here._
+> Conversations list → open a chat → tap ▶ on a message (hear it with emotion) → 🎙 dictate a reply → **Mój głos** to clone your voice.
 
-1. Go to **https://elevenlabs.io** and create a free account (the free tier is
-   enough to try this out).
-2. Click your name in the **bottom-left** corner → **API Keys** → **Create API Key**.
-3. Copy the key (it looks like `sk_...`).
+| Conversations | Chat (emotion metadata) | Voice studio (clone) |
+|---|---|---|
+| _screenshot_ | _screenshot_ | _screenshot_ |
 
-### 2. Set the key
+---
 
-Either create a `.env` file (easiest), or set a real environment variable.
+## 🧠 How it works
 
-**Option A — `.env` file (recommended):**
+Two phones, one small relay backend on a laptop, ElevenLabs for the heavy lifting:
 
+```mermaid
+flowchart LR
+    subgraph A["📱 Phone A"]
+      A1["Type / 🎙 speak"] --> A2["On‑device emotion → eleven_v3 tags"]
+    end
+    A2 -->|"message + emotion metadata"| R["🔁 Relay (Socket.IO)\nforwards & forgets — stores nothing"]
+    R -->|"message"| B1
+    subgraph B["📱 Phone B"]
+      B1["Render bubble + emotion"] --> B2["▶ tap → /api/tts"]
+    end
+    B2 --> S["🟣 Backend proxy (Express)\nholds the API key"]
+    S <-->|"TTS · STT · IVC · Voices"| E["☁️ ElevenLabs API"]
+```
+
+- **Emotion is on‑device** (`voicethread-app/src/features/emotion/`) — pure, offline, multilingual rules (emoji, punctuation, CAPS, per‑language lexicons) → emotion + intensity → `eleven_v3` audio tags + voice settings. Stored as message metadata so replays are deterministic.
+- **The relay never stores content** — it pairs two devices by a short room code and forwards payloads in memory.
+- **The API key never leaves the server** — the app only ever talks to your backend, which proxies ElevenLabs.
+
+---
+
+## 🔌 ElevenLabs API showcase
+
+Everything is proxied through `server.js` (key stays server‑side). Endpoints used:
+
+| Capability | ElevenLabs API | Where |
+|---|---|---|
+| **Text‑to‑Speech** (emotion) | `POST /v1/text-to-speech/{id}` · `eleven_v3` with `[happy]`/`[sad]`… tags | reading messages, "Mów" |
+| **TTS** (low latency / fallback) | `eleven_flash_v2_5` · `eleven_multilingual_v2` | per‑message playback |
+| **Speech‑to‑Text** | `POST /v1/speech-to-text` · `scribe_v1` (`pl`, multilingual) | 🎙 dictation, hands‑free reply |
+| **List voices** | `GET /v1/voices` (premade + your own) | voice pickers |
+| **Instant Voice Cloning** | `POST /v1/voices/add` | "Mój głos" studio |
+
+Server‑side niceties: response **caching** (`sha1(voice+model+format+settings+text)`), friendly **HTTP 402** when a free key hits a paid‑only feature (cloning / library voices), per‑socket **rate limiting**, and message‑size guards on the relay.
+
+---
+
+## 🆓 Works on the free tier?
+
+Tested against a free ElevenLabs key — almost everything works (uses credits); only cloning needs a paid plan:
+
+| Feature | Free tier |
+|---|---|
+| Read aloud **with emotion** (`eleven_v3`), `flash`, `multilingual` | ✅ |
+| **Dictation** (Scribe STT) | ✅ |
+| Premade voices, chat relay, hands‑free, history, full UI | ✅ |
+| **Voice cloning** (IVC) | 💳 needs a paid plan (Starter+) — shows a friendly message otherwise |
+
+---
+
+## 📱 Features
+
+Conversations list (last message, time, unread) · persistent on‑device history (SQLite) · per‑message emotion chip (emoji + label + intensity + tag) + pastel accent · voice playback per message with a mini‑waveform · 🎙 voice dictation · 🖐️ hands‑free auto‑read + speak‑to‑send · 🧬 voice cloning studio · per‑contact voices · timestamps + day separators · delivered/seen ticks · monochrome avatars · ElevenLabs‑inspired design system (Inter, tokens, gradient‑orb accents).
+
+---
+
+## 🛠️ Tech stack
+
+- **App:** React Native + Expo (SDK 54), `expo-audio`, `expo-sqlite`, `socket.io-client`, Inter via `@expo-google-fonts`.
+- **Backend:** Node.js + Express + Socket.IO — ElevenLabs proxy + in‑memory relay (Node 22 global `fetch`/`FormData`/`Blob`, zero heavy deps).
+- **On‑device emotion:** pure JS, multilingual, deterministic.
+
+---
+
+## 🚀 Run it locally
+
+**1) Backend**
 ```bash
-# copy the template, then edit it
-cp .env.example .env
-```
-
-Open `.env` and paste your key:
-
-```
-ELEVENLABS_API_KEY=sk_your_real_key_here
-```
-
-**Option B — environment variable:**
-
-- **Windows (PowerShell):**
-  ```powershell
-  $env:ELEVENLABS_API_KEY = "sk_your_real_key_here"
-  ```
-  (This lasts for the current PowerShell window. To run the app, set it, then `npm start` in the same window.)
-
-- **macOS / Linux (bash/zsh):**
-  ```bash
-  export ELEVENLABS_API_KEY="sk_your_real_key_here"
-  ```
-
-### 3. (Optional) Set the two voices
-
-Open **`server.js`** and find the big **`CONFIG`** block near the top. Paste the
-two voice IDs you want there:
-
-```js
-participants: [
-  { name: 'Ola',    self: false, voiceId: 'EXAVITQu4vr4xnSDxMaL' }, // Sarah — female
-  { name: 'Franek', self: true,  voiceId: 'pNInz6obpgDQGcFmaJgB' }, // Adam  — male
-],
-```
-
-It already ships with two working premade voices (**Sarah** + **Adam**), so you
-can skip this step the first time. To use your own:
-
-- Start the server, then open **http://localhost:3000/api/voices** — it lists
-  every voice your account can use via the API, with names and IDs. Copy two and
-  paste them above.
-- Or go to **https://elevenlabs.io/app/voices**, open a voice, click the **`...`**
-  menu → **Copy Voice ID**.
-
-> ⚠️ **Free tier + voices:** on the free plan the API can only use ElevenLabs
-> **premade / default** voices. Voices from the **Voice Library** return
-> `HTTP 402` ("Free users cannot use library voices via the API"). Stick to the
-> IDs shown by `/api/voices`. (Default voices are also scheduled to expire
-> **2026-12-31** — swap in a current one if an ID ever stops working.)
-
-### 4. Install and start
-
-```bash
+cp .env.example .env        # then put your key in it:  ELEVENLABS_API_KEY=sk_...
 npm install
-npm start
+npm start                   # http://localhost:3000
 ```
 
-### 5. Open the app
-
-> **http://localhost:3000**
-
-Click **▶︎ Odtwórz rozmowę** and you should hear two distinct voices read the
-Polish conversation. 🎉
-
----
-
-## How to use
-
-| Button | What it does |
-| --- | --- |
-| **▶︎ Odtwórz rozmowę** | Reads the entire thread in order (switching voices). Click again to stop. |
-| ▶︎ (on a bubble) | Reads just that one message. |
-| **🎤 Odpowiedz głosem** | Click to start recording, click again to stop & send. Your speech is transcribed (Polish), added as your message, and read back. |
-| **🚗 Tryb jazdy** | Driving mode: large buttons + new incoming messages auto-read. |
-| **＋ Wiadomość od Oli** | Adds a sample incoming message (in driving mode it's read aloud automatically — handy for demoing eyes-free use). |
-
----
-
-## Configuration reference (top of `server.js`)
-
-| Key | Meaning | Default |
-| --- | --- | --- |
-| `participants[].voiceId` | ElevenLabs voice ID per person | Sarah / Adam |
-| `ttsModelId` | TTS model (multilingual for Polish) | `eleven_multilingual_v2` |
-| `sttModelId` | Scribe speech-to-text model | `scribe_v1` |
-| `sttLanguage` | Transcription language (ISO-639-1) | `pl` |
-| `ttsOutputFormat` | mp3 quality | `mp3_44100_128` |
-| `port` | Server port (or `PORT` env var) | `3000` |
-
----
-
-## How the ElevenLabs integration works
-
-All ElevenLabs traffic goes through the server (`server.js`) so the key stays secret.
-The two calls are clearly commented in the code:
-
-- **Text-to-Speech** — `POST /api/tts { text, voiceId }` → calls
-  `POST https://api.elevenlabs.io/v1/text-to-speech/{voice_id}` and returns mp3.
-  Responses are **cached by `text + voiceId`** (in memory and in a local
-  `.cache/` folder) so repeats don't re-call the API.
-- **Speech-to-Text** — `POST /api/stt` (raw audio) → forwards the audio to
-  `POST https://api.elevenlabs.io/v1/speech-to-text` (Scribe) and returns `{ text }`.
-
-If the key is missing or a call fails, a clear error is shown in the UI.
-
----
-
-## Project structure
-
+**2) App**
+```bash
+cd voicethread-app
+npm install
+npx expo start              # open in Expo Go (SDK 54) on your phone
 ```
-SMS/
-├── server.js          # Express server + ElevenLabs proxy + CONFIG block
-├── public/
-│   └── index.html     # the entire frontend (HTML + CSS + JS)
-├── package.json
-├── .env.example       # template for your API key
-├── .gitignore
-└── README.md
-```
+The app auto‑detects the backend at your laptop's LAN IP on port `3000`, so keep the phone on the **same Wi‑Fi**. For two phones across networks, expose the backend with a tunnel (e.g. `cloudflared tunnel --url http://localhost:3000`).
+
+**3) Try it**
+- Open a chat → tap **▶** on a message to hear it with emotion.
+- Tap **🎙** to dictate. Toggle **Bezdotykowo** for hands‑free.
+- **🎙 Głos** (top of the list) → **Mój głos** → record → **Sklonuj** to clone your voice.
 
 ---
 
-## Troubleshooting
-
-- **"Brak klucza ELEVENLABS_API_KEY"** — the server started without a key. Set it
-  (step 2) and restart `npm start`.
-- **401 / unauthorized from ElevenLabs** — the key is wrong or was revoked. Create a new one.
-- **`402 Free users cannot use library voices via the API`** — you're using a
-  Voice Library voice on the free tier. Open **http://localhost:3000/api/voices**,
-  pick two **premade** IDs, paste them into the `CONFIG` block in `server.js`, and
-  restart. (The shipped defaults are already premade.)
-- **A voice ID error** — the voice ID isn't on your account (or a preset expired).
-  Swap in a valid ID from `/api/voices` or https://elevenlabs.io/app/voices.
-- **Microphone doesn't work** — allow mic access when the browser asks. `localhost`
-  is treated as a secure origin, so recording works there without HTTPS.
-- **No sound** — some browsers block autoplay until you interact with the page;
-  clicking a button first (which you do) satisfies this.
-
----
-
-## Notes / constraints (v1 demo)
-
-The bundled web page (`public/index.html`) is the original minimal demo: one
-Express server + one HTML file, no database, hardcoded sample thread. It still
-works as described above.
-
----
-
-# Backend 2.0 — voice messenger (in progress)
-
-The project is evolving into a standalone **voice-first messenger** (separate
-React Native / Expo app in `voicethread-app/`). The full design is in the plan
-file: `~/.claude/plans/dobra-teraz-musimy-to-whimsical-hamster.md`.
-
-The same `server.js` now also acts as the messenger backend. **It relays
-messages between two devices and never stores them.**
-
-### HTTP API
-
-| Endpoint | Body | Returns |
-| --- | --- | --- |
-| `POST /api/tts` | `{ text, voiceId, modelId?, voiceSettings?, outputFormat? }` | mp3 (cached by voice+model+settings+text) |
-| `POST /api/stt` | raw audio bytes | `{ text }` (ElevenLabs Scribe) |
-| `GET /api/voices` | — | `{ premade: [{voice_id, name, gender}] }` |
-| `POST /api/voices/add?name=...` | raw audio sample (1–2 min) | `{ voiceId }` — **needs a PAID ElevenLabs plan** (clear 402 otherwise) |
-| `GET /api/config` | — | models, cache mode, `hasApiKey` |
-
-`POST /api/tts` accepts `eleven_v3` emotion tags inside `text` (e.g.
-`"[happy] Cześć!"`); they're passed through untouched.
-
-### Socket.IO relay events
-
-Pairing: one device picks a short room code, the other joins it (max 2 per room).
-
-- **client → server:** `join {roomId,userId,displayName}`, `message {payload}`, `typing {isTyping}`, `delivered {messageId}`, `played {messageId}`, `leave`
-- **server → client:** `joined`, `peer_joined`, `peer_left`, `message`, `typing`, `delivered`, `played`, `error {code}`
-
-Message payload: `{ id, roomId, from, text? | (ciphertext?+nonce?), ts, emotion?, v:1 }`
-(the `text`/`ciphertext` seam lets E2E encryption drop in later without changing the relay).
-
-### On-device emotion module (`voicethread-app/src/features/emotion/`)
-
-Pure, offline, multilingual emotion detection → ElevenLabs `eleven_v3` audio
-tags + voice settings, so messages are read with the right feeling and **sound
-the same on every replay** (the result is stored as message metadata). Handles
-mixed-language text (e.g. Polish with "goat"/"haha"). Run its test:
+## 🧪 Tests
 
 ```bash
-node voicethread-app/src/features/emotion/emotion.test.mjs
+npm test         # backend relay + HTTP validation + on‑device emotion suite
+```
+Zero‑credit: tests never call ElevenLabs (the emotion engine and schema are pure functions; the relay is exercised against a local server).
+
+---
+
+## 🗂️ Project structure
+
+```
+.
+├── server.js                     # Express + Socket.IO relay + ElevenLabs proxy + CONFIG
+├── public/index.html             # original single‑file web prototype (where it started)
+├── tests/                        # backend + relay tests
+├── docs/                         # brand spec, messenger backlog, ADRs
+└── voicethread-app/              # the Expo app
+    └── src/
+        ├── db/                   # SQLite schema + repository (local history)
+        ├── features/
+        │   ├── chat/             # ChatScreen, ConversationsScreen, useChat, voice input
+        │   ├── emotion/          # on‑device emotion → eleven_v3 tags
+        │   └── voice/            # voice‑cloning studio (IVC)
+        ├── ui/                   # Wordmark, GradientOrb, Waveform
+        └── theme.js              # ElevenLabs‑style design tokens
 ```
 
-### Privacy
+---
 
-The relay forwards messages in memory and does **not** store them. The mp3 cache
-mode is configurable in `CONFIG.cache` (`memory` = nothing on disk, the default).
-We do **not** claim zero-retention at ElevenLabs (that's Enterprise-only); text
-is sent there transiently only to synthesize or transcribe, and this is
-disclosed to the user. See the plan file for the full privacy model.
+## ⚠️ Notes & limitations
 
-### Config
+- **Cloning needs a paid ElevenLabs plan** (IVC). On a free key the button shows a clear, friendly message and the app falls back to premade voices.
+- **Fully no‑touch** hands‑free (wake on incoming, stop on silence) needs a **dev build** (`expo-speech-recognition` isn't in Expo Go). The one‑tap voice reply + auto‑read work in Expo Go.
+- This is a student **proof‑of‑concept** (sideload / dev build), not a production app.
 
-New `CONFIG` keys in `server.js`: `ttsModels` (emotion/latency/fallback),
-`defaultVoiceSettings`, `cache` + `cacheTtlMs`, `relay` (room size + rate limit),
-`corsOrigin`.
+---
+
+## 📄 License & disclaimer
+
+MIT. **Independent project — not affiliated with or endorsed by ElevenLabs.** "ElevenLabs" and its brand belong to ElevenLabs; the UI takes visual inspiration from their design language purely for this showcase. Clone only voices you have the right to use.
+
+<div align="center"><sub>Built with ❤️ and a lot of voices.</sub></div>
