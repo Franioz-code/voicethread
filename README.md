@@ -28,14 +28,24 @@ Most messengers show text. VoiceThread treats **voice + emotion as first‑class
 
 ---
 
-## 🎬 Demo
+## 📸 Screens
 
-> _Add a short screen recording / screenshots here._
-> Conversations list → open a chat → tap ▶ on a message (hear it with emotion) → 🎙 dictate a reply → **Mój głos** to clone your voice.
+<div align="center">
 
-| Conversations | Chat (emotion metadata) | Voice studio (clone) |
-|---|---|---|
-| _screenshot_ | _screenshot_ | _screenshot_ |
+| Conversations | Chat — visible emotion | Voice studio (clone) | Speak (Mów) |
+|:--:|:--:|:--:|:--:|
+| <img src="docs/screenshots/conversations.png" width="210" alt="Conversations list"/> | <img src="docs/screenshots/chat.png" width="210" alt="Chat with per-message emotion"/> | <img src="docs/screenshots/voice-studio.png" width="210" alt="Voice cloning studio"/> | <img src="docs/screenshots/speak.png" width="210" alt="Speak with emotion"/> |
+
+</div>
+
+### Walkthrough
+
+- **Conversations** — the home: your chats with last message, relative time and an unread badge, each stored locally (SQLite) so they survive restarts. Header actions: **Mów** (speak), **🎙 Głos** (your voice studio) and **＋ Nowa** (new chat).
+- **Chat** — monochrome bubbles where **every message shows its emotion**: emoji + Polish label + an **intensity meter** + the actual `eleven_v3` tag (`[happy]`, `[nervous]`…), tinted with a pastel accent per feeling. Avatars + message grouping, day separators and delivered/seen ticks. Tap **▶** to hear a message in the contact's voice, **🎙** to dictate, or **Bezdotykowo** for hands-free auto-read + speak-to-send.
+- **Mój głos (Voice studio)** — record ~40 s and clone your voice with ElevenLabs **IVC**; an on-screen script + tips guide a clean sample. Your clone becomes the voice your messages are read in. On a free plan it shows a friendly "needs a paid plan" notice and you keep using premade voices.
+- **Mów (Speak)** — type anything, watch the **detected emotion update live**, and hear it spoken in any voice — your **cloned voice appears first (tagged 🎙)**. The fastest way to demo the whole pipeline solo, without a second phone.
+
+> 📷 _Screenshots live in [`docs/screenshots/`](docs/screenshots/) — see the guide there for what to capture._
 
 ---
 

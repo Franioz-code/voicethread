@@ -31,6 +31,7 @@
 
 import { io } from 'socket.io-client';
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 
 // --- Auto-detect the backend (same logic as App.js) -------------------------
 // In Expo Go, Metro is served from the laptop's IP; server.js runs on the SAME
@@ -63,6 +64,14 @@ function emitPeer(event) {
 /** Open the relay connection (idempotent). Returns the underlying socket. */
 export function connect() {
   if (socket) return socket;
+
+  // Web preview has no peer/relay — skip the persistent socket (keeps the page
+  // idle so it renders + screenshots cleanly) and report "connected" so the UI
+  // looks normal. Native devices use the real relay below.
+  if (Platform.OS === 'web') {
+    setTimeout(() => emitPeer({ type: 'connected' }), 0);
+    return null;
+  }
 
   socket = io(BACKEND_URL, {
     transports: ['websocket'], // RN has no XHR long-polling; go straight to WS
