@@ -10,6 +10,8 @@ On‑device emotion detection → ElevenLabs `eleven_v3` emotion tags · dictate
 
 </div>
 
+> **How it was built:** a two-day proof of concept on the ElevenLabs API, built with AI coding agents. I designed the product, chose the APIs and made the architecture and security decisions (response caching, rate limiting, threat model).
+
 ---
 
 ## 💬 Why it exists
