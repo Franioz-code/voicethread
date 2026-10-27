@@ -8,7 +8,7 @@ export const meta = {
   ],
 };
 
-const REPO = 'C:/Users/frani/Uczelnia/SMS';
+const REPO = '/path/to/voicethread'; // set to your local checkout
 const BRAND = `${REPO}/docs/ELEVENLABS-BRAND.md`;
 const MAX_FIX_ROUNDS = 2;
 

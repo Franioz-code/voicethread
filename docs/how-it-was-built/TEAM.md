@@ -1,8 +1,14 @@
-# VoiceThread — agent "dream team" (orchestrator-led)
+# VoiceThread: how the agent roles were organised
 
-This project is built by a **bench of specialized agents** coordinated by a
-**main orchestrator (Tech Lead)**. The design follows researched best practices
-for multi-agent systems (sources at the bottom).
+> **Process tooling, not a product feature.** This file, the `workflows/` scripts and
+> `agent-monitor/` describe how I directed Claude Code agents while building the
+> proof of concept. They are not part of VoiceThread, and the app does not use or
+> depend on them. The code was written by the agents; the product decisions,
+> acceptance criteria and review were mine.
+
+The project was built with a set of role-based Claude Code agents coordinated by a
+main orchestrator script (the "Tech Lead" role). The setup follows published
+guidance on agent workflows (sources at the bottom).
 
 ## Methods we apply (the operating manual)
 
@@ -29,7 +35,7 @@ process:
    server-side; sandboxed (workers don't install/run servers); agentic threat-modeling.
 9. **Transparency** — the plan, the active team, consults and fix-rounds are logged.
 
-## The bench (roster — source of truth: `.claude/workflows/orchestrator.js`)
+## The roster (roster — source of truth: `docs/how-it-was-built/workflows/orchestrator.js`)
 
 | id | role | expertise | owns (edits) |
 |---|---|---|---|
@@ -65,7 +71,7 @@ recommended, controllable pattern (a tech lead routing a team) and avoids chaos/
 ## Running the team
 
 - **Managed team (recommended):** *"odpal orkiestratora z celem: <twój cel>"* →
-  `Workflow({ scriptPath: ".claude/workflows/orchestrator.js", args: "<goal>" })`.
+  `Workflow({ scriptPath: "docs/how-it-was-built/workflows/orchestrator.js", args: "<goal>" })`.
   Scales the team to the goal, runs the full spec→delegate→verify-fix loop.
 - **Quick parallel sweep:** `dev-team.js` — 4 fixed lanes in parallel + review/CI. Good for
   broad, independent cleanups when you don't need planning/loops.

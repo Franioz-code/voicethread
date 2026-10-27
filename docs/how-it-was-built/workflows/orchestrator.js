@@ -1,6 +1,6 @@
 export const meta = {
   name: 'voicethread-orchestrator',
-  description: 'Orchestrator-led VoiceThread "dream team". A Tech Lead writes acceptance criteria, scales effort to complexity and activates only the agents needed, delegates with clear boundaries, routes inter-agent consults (hub-and-spoke), then runs an evaluator-optimizer loop: review (rubric) + CI, route blockers back to owners, re-verify (bounded rounds).',
+  description: 'Orchestrator-led VoiceThread agent roles. A Tech Lead writes acceptance criteria, scales effort to complexity and activates only the agents needed, delegates with clear boundaries, routes inter-agent consults (hub-and-spoke), then runs an evaluator-optimizer loop: review (rubric) + CI, route blockers back to owners, re-verify (bounded rounds).',
   phases: [
     { title: 'Spec & Route', detail: 'Lead: acceptance criteria + non-goals, complexity, agent selection, ordered plan' },
     { title: 'Delegate', detail: 'Selected specialists work to acceptance criteria; consults routed by the orchestrator' },
@@ -8,7 +8,7 @@ export const meta = {
   ],
 };
 
-const REPO = 'C:/Users/frani/Uczelnia/SMS';
+const REPO = '/path/to/voicethread'; // set to your local checkout
 const MAX_FIX_ROUNDS = 2;
 
 // The GOAL is the team's task this run. Pass via Workflow args (string). The
@@ -18,7 +18,7 @@ const GOAL =
   : (args && typeof args.goal === 'string' && args.goal.trim()) ? args.goal.trim()
   : 'Review the current PoC against best practices and write a short, prioritized improvement backlog to docs/BACKLOG.md. PLANNING ONLY — do not modify any app or server code.';
 
-// === DREAM TEAM ROSTER (the "bench"; the lead activates only who is needed) ==
+// === ROLE ROSTER (the "bench"; the lead activates only who is needed) ==
 // Disjoint file ownership = no two agents ever edit the same file in a run.
 const TEAM = {
   lead:      { role: 'Tech Lead / Orchestrator', owns: '(plans, routes, integrates; no direct edits)', expertise: 'decomposition, delegation, integration, decisions', calls: 'everyone' },

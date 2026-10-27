@@ -1,4 +1,6 @@
-# Agent Monitor — live view of the Claude Code agent teams
+# Agent Monitor: live view of the Claude Code agent runs
+
+> **Process tooling, not a product feature.** A small local helper I used to watch the Claude Code agents that built VoiceThread. The app does not use it.
 
 A small local dashboard that visualizes the multi-agent runs (orchestrator,
 dev-team, brand-redesign…): **agents as nodes, teams as colors, delegate/consult
@@ -29,11 +31,11 @@ Already added to `.claude/settings.local.json` in this repo:
 ```json
 {
   "hooks": {
-    "SubagentStart":[{"hooks":[{"type":"command","command":"node \"C:/Users/frani/Uczelnia/SMS/agent-monitor/hook.mjs\""}]}],
-    "SubagentStop": [{"hooks":[{"type":"command","command":"node \"C:/Users/frani/Uczelnia/SMS/agent-monitor/hook.mjs\""}]}],
-    "PostToolUse":  [{"hooks":[{"type":"command","command":"node \"C:/Users/frani/Uczelnia/SMS/agent-monitor/hook.mjs\""}]}],
-    "SessionStart": [{"hooks":[{"type":"command","command":"node \"C:/Users/frani/Uczelnia/SMS/agent-monitor/hook.mjs\""}]}],
-    "Stop":         [{"hooks":[{"type":"command","command":"node \"C:/Users/frani/Uczelnia/SMS/agent-monitor/hook.mjs\""}]}]
+    "SubagentStart":[{"hooks":[{"type":"command","command":"node \"<repo>/docs/how-it-was-built/agent-monitor/hook.mjs\""}]}],
+    "SubagentStop": [{"hooks":[{"type":"command","command":"node \"<repo>/docs/how-it-was-built/agent-monitor/hook.mjs\""}]}],
+    "PostToolUse":  [{"hooks":[{"type":"command","command":"node \"<repo>/docs/how-it-was-built/agent-monitor/hook.mjs\""}]}],
+    "SessionStart": [{"hooks":[{"type":"command","command":"node \"<repo>/docs/how-it-was-built/agent-monitor/hook.mjs\""}]}],
+    "Stop":         [{"hooks":[{"type":"command","command":"node \"<repo>/docs/how-it-was-built/agent-monitor/hook.mjs\""}]}]
   }
 }
 ```

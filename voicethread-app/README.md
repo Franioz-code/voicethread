@@ -20,13 +20,13 @@ Czat między dwoma telefonami, tryb bezdotykowy i tryb jazdy to kolejne etapy.
 
 ## Uruchomienie (2 terminale na laptopie)
 
-**Terminal 1 — backend** (w folderze `SMS`, tam gdzie `server.js` i `.env`):
+**Terminal 1 — backend** (w katalogu głównym repozytorium, tam gdzie `server.js` i `.env`):
 ```bash
 npm start
 ```
 Poczekaj na `✓ API key detected. Ready.`
 
-**Terminal 2 — aplikacja** (w folderze `SMS/voicethread-app`):
+**Terminal 2 — aplikacja** (w katalogu `voicethread-app`):
 ```bash
 npm install      # tylko za pierwszym razem (już zrobione)
 npx expo start
@@ -61,7 +61,7 @@ npm run test:emotion
 ## Gdy coś nie działa
 
 - **„Brak połączenia"**
-  - Backend nie działa → uruchom `npm start` w folderze `SMS`.
+  - Backend nie działa → uruchom `npm start` w katalogu głównym repozytorium.
   - Telefon i laptop w **różnych** sieciach → połącz oba z tym samym Wi‑Fi.
   - **Zapora Windows blokuje Node** (najczęstsza przyczyna) → przy pierwszym
     `npm start` Windows zapyta „Czy zezwolić Node.js…?" → kliknij **Zezwól**
